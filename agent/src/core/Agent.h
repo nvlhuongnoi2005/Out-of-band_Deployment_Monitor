@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include "config/AgentConfig.h"
+#include "FileEvent.h"
 
 class IFileWatcher;
 
@@ -16,7 +17,11 @@ public:
     bool start();
     void stop();
 
+private slots:
+    void onFileEvent(const FileEvent &event);
+    void onWatcherError(const QString &message);
+
 private:
     AgentConfig   m_config;
-    IFileWatcher *m_watcher = nullptr;  // Day 3: gắn InotifyWatcher vào đây
+    IFileWatcher *m_watcher = nullptr;
 };
