@@ -1,0 +1,18 @@
+# Local planning notes
+process.md
+
+# Build outputs
+build/
+cmake-build-*/
+
+# Generated compile database
+compile_commands.json
+
+# IDE/editor local settings
+.vscode/
+.idea/
+
+# OS/editor noise
+*~
+*.swp
+*.swo

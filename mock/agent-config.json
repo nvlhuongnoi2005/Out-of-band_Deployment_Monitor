@@ -1,0 +1,9 @@
+{
+  "agent_id": "local-demo",
+  "server": "local-demo",
+  "project": "demo-app",
+  "watch_dirs": ["/tmp/demo-prod-app"],
+  "central_url": "http://127.0.0.1:8080",
+  "heartbeat_interval_sec": 30,
+  "retry_interval_sec": 5
+}
