@@ -1,20 +1,17 @@
 #include "Agent.h"
 #include "watcher/IFileWatcher.h"
-#include "watcher/InotifyWatcher.h"
-
-#include <QJsonObject>
-#include <QJsonDocument>
+#include "reporter/IEventReporter.h"
 #include <QDebug>
 
-Agent::Agent(const QString &configPath, QObject *parent)
+Agent::Agent(IFileWatcher   *watcher,
+             IEventReporter *reporter,
+             const AgentConfig &config,
+             QObject *parent)
     : QObject(parent)
-    , m_config(AgentConfig::loadFromFile(configPath))
+    , m_config(config)
+    , m_watcher(watcher)
+    , m_reporter(reporter)
 {}
-
-Agent::~Agent()
-{
-    stop();
-}
 
 bool Agent::start()
 {
@@ -24,7 +21,6 @@ bool Agent::start()
     qInfo() << "[Agent] Watching:" << m_config.watchDirs;
     qInfo() << "[Agent] Central :" << m_config.centralUrl;
 
-    m_watcher = new InotifyWatcher(this);
     connect(m_watcher, &IFileWatcher::fileEventDetected,
             this,      &Agent::onFileEvent);
     connect(m_watcher, &IFileWatcher::errorOccurred,
@@ -41,36 +37,20 @@ bool Agent::start()
 
 void Agent::stop()
 {
-    if (m_watcher) {
+    if (m_watcher && m_watcher->isRunning())
         m_watcher->stop();
-        m_watcher = nullptr;
-    }
     qInfo() << "[Agent] Stopped.";
 }
 
 void Agent::onFileEvent(const FileEvent &event)
 {
-    // Đính kèm thông tin từ config vào event
-    FileEvent enriched = event;
+    // Agent chỉ làm một việc: enrich event với context từ config rồi forward
+    FileEvent enriched   = event;
     enriched.agentId = m_config.agentId;
     enriched.server  = m_config.server;
     enriched.project = m_config.project;
 
-    // In ra console dạng JSON (Ngày 4 sẽ gửi HTTP thay vì in)
-    QJsonObject obj;
-    obj["event_id"]    = enriched.eventId;
-    obj["server"]      = enriched.server;
-    obj["project"]     = enriched.project;
-    obj["path"]        = enriched.path;
-    obj["event_type"]  = eventTypeToString(enriched.eventType);
-    obj["timestamp"]   = enriched.timestamp.toString(Qt::ISODateWithMs);
-    obj["uid"]         = enriched.uid;
-    obj["username"]    = enriched.username;
-    obj["pid"]         = enriched.pid;
-    obj["process_name"]= enriched.processName;
-
-    QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    qInfo().noquote() << "[EVENT]" << json;
+    m_reporter->enqueue(enriched);
 }
 
 void Agent::onWatcherError(const QString &message)

@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include "FileEvent.h"
 
 // Strategy pattern interface — cho phép swap inotify <-> eBPF

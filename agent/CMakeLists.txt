@@ -2,9 +2,17 @@ find_package(Qt6 REQUIRED COMPONENTS Core Network)
 
 set(AGENT_SOURCES
     src/main.cpp
+    src/core/Agent.h
     src/core/Agent.cpp
-    src/watcher/IFileWatcher.cpp
+    src/config/AgentConfig.h
+    src/watcher/IFileWatcher.h
+    src/watcher/InotifyWatcher.h
     src/watcher/InotifyWatcher.cpp
+    src/reporter/IEventReporter.h
+    src/reporter/EventReporter.h
+    src/reporter/EventReporter.cpp
+    src/proc/ProcHelper.h
+    src/proc/ProcHelper.cpp
 )
 
 add_executable(oob-agent ${AGENT_SOURCES})
