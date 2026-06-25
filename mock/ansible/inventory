@@ -1,0 +1,8 @@
+# Ansible inventory for OOB auto-remediation demo
+# In production, replace with your real inventory or dynamic inventory script.
+
+[local-demo]
+127.0.0.1 ansible_connection=local
+
+[prod]
+# prod-server-01 ansible_host=192.168.1.10 ansible_user=deploy

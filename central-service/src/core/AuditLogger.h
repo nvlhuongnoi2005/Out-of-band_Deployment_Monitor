@@ -8,7 +8,7 @@
 class AuditLogger {
 public:
     explicit AuditLogger(const QString &logPath);
-    void write(const QString &jsonLine);
+    bool write(const QString &jsonLine);
     QString logPath() const { return m_logPath; }
 
 private:

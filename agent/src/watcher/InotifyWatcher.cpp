@@ -91,7 +91,6 @@ bool InotifyWatcher::addWatch(const QString &dirPath)
         return false;
     }
     m_wdToPath[wd] = dirPath;
-    qDebug() << "[Watcher] Added watch:" << dirPath;
     return true;
 }
 
@@ -127,7 +126,7 @@ void InotifyWatcher::processEvent(const struct inotify_event *e)
     const QString fullPath = name.isEmpty() ? dirPath : dirPath + "/" + name;
 
     if ((e->mask & IN_CREATE) && (e->mask & IN_ISDIR))
-        addWatch(fullPath);
+        addWatchRecursive(fullPath); // recursive: also catches pre-existing subdirs inside the new dir
 
     if ((e->mask & IN_ISDIR) && !(e->mask & IN_CREATE)) return;
 
@@ -140,7 +139,6 @@ void InotifyWatcher::processEvent(const struct inotify_event *e)
     ev.eventType = evType;
     ev.timestamp = QDateTime::currentDateTime();
 
-    // Dùng ProcHelper — tách biệt hoàn toàn khỏi InotifyWatcher
     int pid = ProcHelper::findPidByOpenFile(fullPath);
     if (pid > 0) {
         ev.pid         = pid;

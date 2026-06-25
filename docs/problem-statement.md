@@ -81,19 +81,3 @@ Main Flow:
   6. Central Service ghi audit log + alert.
 Kết quả : Alert + log ghi rõ file bị thay đổi permission trái phép.
 ```
-
-## 4. Thư mục Demo
-
-```
-/tmp/demo-prod-app/
-├── config/
-│   ├── app.yaml
-│   └── db.yaml
-├── bin/
-│   └── app.jar
-└── scripts/
-    └── run.sh
-```
-
-Thư mục này mô phỏng thư mục chạy dự án thực tế trên production server.
-Agent sẽ watch toàn bộ cây thư mục này (bao gồm subdirectory đệ quy).

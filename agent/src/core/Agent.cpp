@@ -1,6 +1,12 @@
 #include "Agent.h"
 #include "watcher/IFileWatcher.h"
 #include "reporter/IEventReporter.h"
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonObject>
+#include <QJsonDocument>
+#include <QDateTime>
+#include <QUrl>
 #include <QDebug>
 
 Agent::Agent(IFileWatcher   *watcher,
@@ -31,6 +37,15 @@ bool Agent::start()
         return false;
     }
 
+    if (m_config.heartbeatIntervalSec > 0) {
+        m_netManager     = new QNetworkAccessManager(this);
+        m_heartbeatTimer = new QTimer(this);
+        connect(m_heartbeatTimer, &QTimer::timeout, this, &Agent::onHeartbeatTick);
+        m_heartbeatTimer->start(m_config.heartbeatIntervalSec * 1000);
+        onHeartbeatTick();
+        qInfo() << "[Agent] Heartbeat interval:" << m_config.heartbeatIntervalSec << "s";
+    }
+
     qInfo() << "[Agent] Started. Listening for file events...";
     return true;
 }
@@ -56,4 +71,25 @@ void Agent::onFileEvent(const FileEvent &event)
 void Agent::onWatcherError(const QString &message)
 {
     qCritical() << "[Agent] Watcher error:" << message;
+}
+
+void Agent::onHeartbeatTick()
+{
+    QJsonObject hb;
+    hb["agent_id"]  = m_config.agentId;
+    hb["server"]    = m_config.server;
+    hb["project"]   = m_config.project;
+    hb["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+    hb["status"]    = "healthy";
+
+    // Heartbeat is best-effort; file events still use the retrying EventReporter queue.
+    QNetworkRequest req(QUrl(m_config.centralUrl + "/api/v1/heartbeat"));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QNetworkReply *reply =
+        m_netManager->post(req, QJsonDocument(hb).toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, reply, [reply]() {
+        if (reply->error() != QNetworkReply::NoError)
+            qWarning() << "[Agent] Heartbeat failed:" << reply->errorString();
+        reply->deleteLater();
+    });
 }

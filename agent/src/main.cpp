@@ -4,11 +4,9 @@
 
 #include "core/Agent.h"
 #include "config/AgentConfig.h"
-#include "watcher/InotifyWatcher.h"   // implementation cụ thể
-#include "reporter/EventReporter.h"   // implementation cụ thể
+#include "watcher/InotifyWatcher.h"
+#include "reporter/EventReporter.h"
 
-// Composition Root — nơi DUY NHẤT trong codebase biết về implementation cụ thể.
-// Muốn đổi sang EbpfWatcher: chỉ sửa 1 dòng ở đây, không đụng Agent.
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
@@ -28,12 +26,10 @@ int main(int argc, char *argv[])
 
     const AgentConfig config = AgentConfig::loadFromFile(parser.value(configOption));
 
-    // Tạo implementations — chỉ ở đây mới dùng concrete class
     InotifyWatcher watcher;
     EventReporter  reporter(config.centralUrl, config.retryIntervalSec);
+    Agent          agent(&watcher, &reporter, config);
 
-    // Inject vào Agent qua interface — Agent không biết gì về InotifyWatcher
-    Agent agent(&watcher, &reporter, config);
     if (!agent.start())
         return 1;
 

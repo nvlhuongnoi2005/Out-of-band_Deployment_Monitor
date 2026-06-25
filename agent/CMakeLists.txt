@@ -5,6 +5,7 @@ set(AGENT_SOURCES
     src/core/Agent.h
     src/core/Agent.cpp
     src/config/AgentConfig.h
+    src/config/AgentConfig.cpp
     src/watcher/IFileWatcher.h
     src/watcher/InotifyWatcher.h
     src/watcher/InotifyWatcher.cpp

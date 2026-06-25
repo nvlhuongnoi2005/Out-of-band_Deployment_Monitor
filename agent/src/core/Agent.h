@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QObject>
+#include <QTimer>
+#include <QNetworkAccessManager>
 #include "config/AgentConfig.h"
 #include "FileEvent.h"
 
@@ -11,8 +13,6 @@ class Agent : public QObject
 {
     Q_OBJECT
 public:
-    // Dependency Injection: Agent không biết InotifyWatcher hay EventReporter
-    // Chỉ biết interface → dễ swap, dễ test
     explicit Agent(IFileWatcher   *watcher,
                    IEventReporter *reporter,
                    const AgentConfig &config,
@@ -24,9 +24,12 @@ public:
 private slots:
     void onFileEvent(const FileEvent &event);
     void onWatcherError(const QString &message);
+    void onHeartbeatTick();
 
 private:
-    AgentConfig    m_config;
-    IFileWatcher  *m_watcher;   // không owned — caller quản lý lifetime
-    IEventReporter *m_reporter; // không owned — caller quản lý lifetime
+    AgentConfig            m_config;
+    IFileWatcher          *m_watcher;          // not owned
+    IEventReporter        *m_reporter;         // not owned
+    QTimer                *m_heartbeatTimer  = nullptr;
+    QNetworkAccessManager *m_netManager      = nullptr;
 };

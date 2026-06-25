@@ -1,0 +1,17 @@
+[Unit]
+Description=Out-of-Band Deployment Monitor — Agent
+Documentation=https://github.com/nvlhuongnoi2005/tracking-deployment
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/oob-agent --config /etc/oob-agent/config.json
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=oob-agent
+
+[Install]
+WantedBy=multi-user.target
