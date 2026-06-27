@@ -1,48 +1,67 @@
 #include "HttpJenkinsClient.h"
 
-#include <httplib.h>
+#include <QProcess>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
-#include <QUrl>
 #include <QDebug>
 
-HttpJenkinsClient::HttpJenkinsClient(const QString &baseUrl,
-                                     const QString &username,
-                                     const QString &apiToken)
-    : m_baseUrl(baseUrl), m_username(username), m_apiToken(apiToken)
+HttpJenkinsClient::HttpJenkinsClient(const JenkinsConfig &config)
+    : m_config(config)
 {}
 
 bool HttpJenkinsClient::isDeployRunning(const QString &project, const QString &server)
 {
     Q_UNUSED(server) // Jenkins jobs are per-project; server matching via job name convention
 
-    const QUrl url(m_baseUrl);
-    httplib::Client cli(url.host().toStdString(), url.port(8080));
-    cli.set_connection_timeout(3);
-    cli.set_read_timeout(3);
-    cli.set_basic_auth(m_username.toStdString(), m_apiToken.toStdString());
+    // GET /api/json?tree=jobs[name,color]
+    // curl handles both http:// and https:// transparently.
+    const QString apiUrl = m_config.url + "/api/json?tree=jobs[name,color]";
 
-    // GET /api/json?tree=jobs[name,color] — list all jobs with status
-    auto res = cli.Get("/api/json?tree=jobs[name,color]");
-    if (!res || res->status != 200) {
-        // KNOWN LIMITATION: treating unreachable Jenkins as "no deploy running".
-        // This may cause false UNAUTHORIZED_DRIFT alerts when Jenkins is down.
-        qCritical() << "[Jenkins] API unreachable (HTTP"
-                    << (res ? res->status : 0)
-                    << ") — false UNAUTHORIZED alerts are possible!";
+    QStringList args = {
+        "-s",
+        "-u", m_config.username + ":" + m_config.apiToken,
+        apiUrl
+    };
+
+    if (!m_config.sslVerify)
+        args << "--insecure";
+
+    QProcess proc;
+    proc.start("curl", args);
+
+    if (!proc.waitForFinished(10000) || proc.exitCode() != 0) {
+        if (m_config.failOpen) {
+            qWarning() << "[Jenkins] API unreachable — fail_open=true, treating as AUTHORIZED"
+                       << "(deploy may be running)";
+            return true;
+        }
+        qCritical() << "[Jenkins] API unreachable (curl exit=" << proc.exitCode()
+                    << ") — fail_open=false, may generate false UNAUTHORIZED alerts!";
         return false;
     }
 
-    const auto doc = QJsonDocument::fromJson(QByteArray::fromStdString(res->body));
-    if (doc.isNull()) return false;
+    const auto doc = QJsonDocument::fromJson(proc.readAllStandardOutput());
+    if (doc.isNull()) {
+        if (m_config.failOpen) {
+            qWarning() << "[Jenkins] Malformed API response — fail_open=true, treating as AUTHORIZED";
+            return true;
+        }
+        qCritical() << "[Jenkins] Malformed API response — fail_open=false, may generate false alerts!";
+        return false;
+    }
 
     for (const QJsonValue &v : doc.object()["jobs"].toArray()) {
-        const QJsonObject job  = v.toObject();
-        const QString    name  = job["name"].toString();
-        const QString    color = job["color"].toString();
+        const QJsonObject job   = v.toObject();
+        const QString     name  = job["name"].toString();
+        const QString     color = job["color"].toString();
 
-        if (name.contains(project, Qt::CaseInsensitive) && color.endsWith("_anime")) {
+        // Strict matching: exact name OR name starts with project + "-"
+        // e.g. project="webapp" matches "webapp" or "webapp-deploy" but NOT "my-webapp"
+        const bool nameMatches = (name.compare(project, Qt::CaseInsensitive) == 0)
+                              || name.startsWith(project + "-", Qt::CaseInsensitive);
+
+        if (nameMatches && color.endsWith("_anime")) {
             qInfo() << "[Jenkins] Active deploy found:" << name;
             return true;
         }

@@ -9,6 +9,8 @@ set(AGENT_SOURCES
     src/watcher/IFileWatcher.h
     src/watcher/InotifyWatcher.h
     src/watcher/InotifyWatcher.cpp
+    src/watcher/EbpfWatcher.h
+    src/watcher/EbpfWatcher.cpp
     src/reporter/IEventReporter.h
     src/reporter/EventReporter.h
     src/reporter/EventReporter.cpp

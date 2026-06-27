@@ -1,154 +1,302 @@
-# Kiến Trúc Tổng Thể
+# Kiến Trúc Hệ Thống — Out-of-Band Deployment Monitor
 
-## 1. Sơ đồ kiến trúc
+## 1. Tổng quan
+
+Hệ thống phát hiện **Shadow Deployment** — các thay đổi trên production server xảy ra ngoài luồng CI/CD (Jenkins + Ansible). Gồm hai tiến trình độc lập viết bằng C++17 + Qt 6:
+
+- **oob-agent** — chạy trên từng production server, theo dõi filesystem
+- **oob-central** — dịch vụ trung tâm, phân loại sự kiện và phản ứng
+
+---
+
+## 2. Sơ đồ kiến trúc
 
 ```
-╔══════════════════════════════════════════════════════════════════╗
-║                      PRODUCTION SERVER                           ║
-║                                                                  ║
-║  ┌────────────────────────────────────────────────────────────┐  ║
-║  │                    C++/Qt Agent                            │  ║
-║  │                                                            │  ║
-║  │  Kernel                                                    │  ║
-║  │  ┌──────────────────┐                                      │  ║
-║  │  │ inotify (Linux)  │  IN_CREATE, IN_MODIFY,               │  ║
-║  │  │ via QSocketNotif.│  IN_DELETE, IN_ATTRIB,               │  ║
-║  │  └────────┬─────────┘  IN_MOVED_FROM, IN_MOVED_TO         │  ║
-║  │           │                                                │  ║
-║  │           ▼                                                │  ║
-║  │  ┌────────────────────────────────────────────────┐        │  ║
-║  │  │  FileWatcher                                   │        │  ║
-║  │  │  - Recursive directory watch                   │        │  ║
-║  │  │  - Lookup uid/username từ /proc/[pid]/status   │        │  ║
-║  │  │  - Normalize event thành FileEvent struct      │        │  ║
-║  │  └──────────────────────┬─────────────────────────┘        │  ║
-║  │                         │ FileEvent                        │  ║
-║  │                         ▼                                  │  ║
-║  │  ┌────────────────────────────────────────────────┐        │  ║
-║  │  │  EventQueue (QQueue + QMutex)                  │        │  ║
-║  │  │  - Thread-safe buffer                          │        │  ║
-║  │  │  - LocalBuffer khi mất kết nối Central         │        │  ║
-║  │  └──────────────────────┬─────────────────────────┘        │  ║
-║  │                         │                                  │  ║
-║  │                         ▼                                  │  ║
-║  │  ┌────────────────────────────────────────────────┐        │  ║
-║  │  │  EventReporter (QNetworkAccessManager)         │        │  ║
-║  │  │  - Serialize JSON (QJsonDocument)              │        │  ║
-║  │  │  - HTTP POST /api/v1/events                    │        │  ║
-║  │  │  - Retry khi thất bại                          │        │  ║
-║  │  │  - Heartbeat 30s                               │        │  ║
-║  │  └──────────────────────┬─────────────────────────┘        │  ║
-║  └─────────────────────────│──────────────────────────────────┘  ║
-║                            │                                     ║
-║  /tmp/demo-prod-app/       │ HTTPS  POST /api/v1/events          ║
-║  (monitored directory)     │                                     ║
-╚════════════════════════════│═════════════════════════════════════╝
-                             │
-                             ▼
-╔══════════════════════════════════════════════════════════════════╗
-║              Central Reconciliation Service (C++/Qt)             ║
-║                                                                  ║
-║  ┌─────────────────┐     ┌──────────────────────────────────┐   ║
-║  │  AgentListener  │────▶│         DecisionEngine           │   ║
-║  │  (HTTP Server)  │     │                                  │   ║
-║  │                 │     │  1. Có Deploy Window không?      │   ║
-║  │  POST /events   │     │         │                        │   ║
-║  │  POST /deploy-  │     │    YES──┤──NO                    │   ║
-║  │       window    │     │         │    │                   │   ║
-║  └─────────────────┘     │   AUTHOR│    ▼                   │   ║
-║                          │   IZED  │  Gọi JenkinsClient     │   ║
-║  ┌─────────────────┐     │         │  xác nhận thêm         │   ║
-║  │ DeployWindow    │◀────│         │    │                   │   ║
-║  │ Manager         │     │         │  UNAUTHORIZED_DRIFT    │   ║
-║  │ (QMap +         │     └─────────┼────────────────────────┘   ║
-║  │  QTimer TTL)    │               │                            ║
-║  └─────────────────┘      ┌────────┴──────────┐                 ║
-║                           │                   │                 ║
-║                      AUTHORIZED          UNAUTHORIZED           ║
-║                           │                   │                 ║
-║                           ▼                   ▼                 ║
-║                    ┌─────────────┐    ┌───────────────────┐     ║
-║                    │ AuditLogger │    │   AlertManager    │     ║
-║                    │ JSON Lines  │    │ + AuditLogger     │     ║
-║                    │ → Filebeat  │    │ + AnsibleTrigger  │     ║
-║                    │ → ES        │    │   (optional)      │     ║
-║                    └─────────────┘    └───────────────────┘     ║
-╚══════════════════════════════════════════════════════════════════╝
-          │                    │                    │
-          ▼                    ▼                    ▼
-   ┌─────────────┐   ┌──────────────────┐  ┌──────────────────┐
-   │ Jenkins API │   │  Elasticsearch   │  │  Ansible         │
-   │ (hoặc mock) │   │  (EFK Stack)     │  │  (remediation)   │
-   └─────────────┘   └────────┬─────────┘  └──────────────────┘
-                              │
-                              ▼
-                       ┌─────────────┐
-                       │   Grafana   │
-                       │  Dashboard  │
-                       │ (Drift KPI) │
-                       └─────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                     PRODUCTION SERVER                               │
+│                                                                     │
+│  /opt/webapp/  (watched directory)                                  │
+│       │                                                             │
+│       │  kernel events                                              │
+│       ▼                                                             │
+│  ┌──────────────────────────────────────────────┐                  │
+│  │           IFileWatcher  (Strategy)           │                  │
+│  │                                              │                  │
+│  │  ┌─────────────────┐  ┌────────────────────┐ │                  │
+│  │  │ InotifyWatcher  │  │   EbpfWatcher      │ │                  │
+│  │  │ (default)       │  │ (--watcher ebpf)   │ │                  │
+│  │  │                 │  │                    │ │                  │
+│  │  │ inotify syscall │  │ bpftrace subprocess│ │                  │
+│  │  │ + QSocketNotif. │  │ eBPF tracepoints   │ │                  │
+│  │  │ /proc lookup    │  │ uid/pid từ kernel  │ │                  │
+│  │  └─────────────────┘  └────────────────────┘ │                  │
+│  └──────────────────────┬───────────────────────┘                  │
+│                         │ FileEvent{path, type, uid, pid, comm}    │
+│                         ▼                                          │
+│  ┌──────────────────────────────────────────────┐                  │
+│  │             Agent (QObject)                  │                  │
+│  │  - Nhận FileEvent từ watcher                 │                  │
+│  │  - Forward sang EventReporter                │                  │
+│  │  - Quản lý heartbeat timer (30s)             │                  │
+│  └──────────────────────┬───────────────────────┘                  │
+│                         │                                          │
+│  ┌──────────────────────▼───────────────────────┐                  │
+│  │          EventReporter                       │                  │
+│  │  - QQueue<FileEvent>  (in-process buffer)    │                  │
+│  │  - QNetworkAccessManager → HTTP/HTTPS POST   │                  │
+│  │  - Retry tự động (QTimer, mặc định 5s)       │                  │
+│  │  - Heartbeat → POST /api/v1/heartbeat        │                  │
+│  └──────────────────────────────────────────────┘                  │
+│                         │  HTTPS POST /api/v1/events               │
+└─────────────────────────│───────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   CENTRAL SERVICE  (oob-central)                    │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  HTTP Server  (cpp-httplib, synchronous)                     │   │
+│  │  POST /api/v1/events  ·  POST /api/v1/deploy-window          │   │
+│  │  POST /api/v1/heartbeat  ·  GET /health                      │   │
+│  └───────────────────────┬──────────────────────────────────────┘   │
+│                          │                                          │
+│                          ▼                                          │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │               DecisionEngine                                 │   │
+│  │                                                              │   │
+│  │   1. DeployWindowManager.isOpen(project, server)?            │   │
+│  │          YES ──────────────────────────► AUTHORIZED_CHANGE   │   │
+│  │          NO                                                  │   │
+│  │           │                                                  │   │
+│  │   2. IJenkinsClient.isDeployRunning(project)?                │   │
+│  │          YES ──────────────────────────► AUTHORIZED_CHANGE   │   │
+│  │          NO                                                  │   │
+│  │           │                                                  │   │
+│  │           └───────────────────────────► UNAUTHORIZED_DRIFT   │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌──────────────────┐    ┌────────────────────────────────────────┐ │
+│  │ DeployWindow     │    │ IJenkinsClient  (Strategy)             │ │
+│  │ Manager          │    │                                        │ │
+│  │                  │    │ ┌──────────────────────────────────┐   │ │
+│  │ QMap<key, expiry>│    │ │ HttpJenkinsClient                │   │ │
+│  │ QMutex           │    │ │ curl subprocess, HTTP/HTTPS      │   │ │
+│  │ TTL: valid_until │    │ │ color.endsWith("_anime") = busy  │   │ │
+│  │ hoặc ttl_sec     │    │ └──────────────────────────────────┘   │ │
+│  │ max 86400s       │    │ ┌──────────────────────────────────┐   │ │
+│  └──────────────────┘    │ │ MockJenkinsClient                │   │ │
+│                          │ │ đọc JSON file (dev/test)         │   │ │
+│                          │ └──────────────────────────────────┘   │ │
+│                          └────────────────────────────────────────┘ │
+│                                                                     │
+│          Khi UNAUTHORIZED_DRIFT                                     │
+│          ┌───────────────────────────────────────────────────┐      │
+│          │                                                   │      │
+│          ▼                   ▼                    ▼          │      │
+│  ┌──────────────┐   ┌─────────────────┐  ┌──────────────┐   │      │
+│  │ AuditLogger  │   │  SmtpNotifier   │  │  Jenkins     │   │      │
+│  │              │   │                 │  │  Remediator  │   │      │
+│  │ JSON Lines   │   │ Python3 smtplib │  │              │   │      │
+│  │ /var/log/    │   │ QTemporaryFile  │  │ curl HTTPS   │   │      │
+│  │ oob-audit.log│   │ (creds không   │  │ POST /job/   │   │      │
+│  │ QMutex       │   │  hiện trên ps) │  │ {proj}/build │   │      │
+│  └──────┬───────┘   └─────────────────┘  └──────┬───────┘   │      │
+│         │                                        │           │      │
+│         ▼                                        │           │      │
+│  ┌──────────────┐                                │           │      │
+│  │ Elasticsearch│◄── ElasticsearchClient         │           │      │
+│  │ Client       │    (curl subprocess,           │           │      │
+│  │              │     HTTP/HTTPS,                │           │      │
+│  │              │     direct index API)          │           │      │
+│  └──────────────┘                                │           │      │
+└─────────────────────────────────────────────────┼───────────┘      
+                                                  │
+                          ┌───────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    EXTERNAL SYSTEMS                                  │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────────┐  ┌────────────────────┐    │
+│  │   Jenkins    │  │  Elasticsearch   │  │   Grafana          │    │
+│  │              │  │  8.x             │  │   Dashboard        │    │
+│  │ Status check │  │  index oob-audit │  │   port 3000        │    │
+│  │ + Re-trigger │  │  HTTP/HTTPS      │  │   ES datasource    │    │
+│  │   pipeline   │  │                  │  │   Drift KPI        │    │
+│  └──────────────┘  └──────────────────┘  └────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. Thành phần hệ thống
+---
 
-### Agent (chạy trên mỗi production server)
+## 3. Thành phần chi tiết
 
-| Module | Công nghệ | Nhiệm vụ |
+### 3.1 Agent (`oob-agent`)
+
+| Module | Class | Công nghệ | Nhiệm vụ |
+|---|---|---|---|
+| Watcher (inotify) | `InotifyWatcher` | inotify + `QSocketNotifier` | Recursive watch, event loop integration |
+| Watcher (eBPF) | `EbpfWatcher` | `bpftrace` subprocess | eBPF tracepoints, uid/pid từ kernel |
+| Process info | `ProcHelper` | `/proc/[pid]/status`, `/proc/[pid]/cmdline` | uid, username, process name khi dùng inotify |
+| Event reporter | `EventReporter` | `QNetworkAccessManager` | Queue + retry + HTTP/HTTPS POST |
+| Agent core | `Agent` | `QObject`, `QTimer` | Orchestration + heartbeat 30s |
+| Config | `AgentConfig` | `QJsonDocument` | Load `agent-config.json` |
+
+**Shared struct** (`shared/FileEvent.h`):
+```cpp
+struct FileEvent {
+    QString   eventId;    // UUID
+    QString   path;       // đường dẫn đầy đủ
+    EventType eventType;  // CREATE / MODIFY / DELETE / ATTRIB / MOVED_FROM / MOVED_TO
+    QDateTime timestamp;  // UTC, ISO 8601 với Z suffix
+    int       uid;        // user id thực hiện thay đổi
+    QString   username;   // tên user
+    int       pid;        // process id
+    QString   processName;// tên tiến trình
+};
+```
+
+**Watcher backends** (chọn bằng `--watcher`):
+
+| Backend | Điều kiện uid/pid | Yêu cầu |
 |---|---|---|
-| FileWatcher | inotify + QSocketNotifier | Bắt sự kiện file system |
-| EventQueue | QQueue + QMutex | Buffer thread-safe |
-| EventReporter | QNetworkAccessManager | Gửi HTTP POST |
-| LocalBuffer | QQueue (in-memory) | Lưu tạm khi offline |
-| Heartbeat | QTimer | Ping Central mỗi 30 giây |
+| `inotify` (default) | Từ `/proc` sau khi event → có race condition với short-lived process | Không cần thêm |
+| `ebpf` | Từ kernel tại thời điểm syscall → chính xác tuyệt đối | `bpftrace` + root |
 
-### Central Reconciliation Service
+### 3.2 Central Service (`oob-central`)
 
-| Module | Công nghệ | Nhiệm vụ |
-|---|---|---|
-| AgentListener | QHttpServer / cpp-httplib | Nhận event từ Agent |
-| DeployWindowManager | QMap + QTimer | Quản lý cửa sổ deploy hợp lệ |
-| JenkinsClient | QNetworkAccessManager | Gọi Jenkins REST API |
-| DecisionEngine | C++ logic | Phân loại AUTHORIZED / UNAUTHORIZED |
-| AuditLogger | QFile (JSON Lines) | Ghi audit log |
-| AlertManager | HTTP / webhook | Bắn alert khi có vi phạm |
-| AnsibleTrigger | QProcess | Trigger Ansible playbook (optional) |
+| Module | Class | Công nghệ | Nhiệm vụ |
+|---|---|---|---|
+| HTTP Server | `CentralService` | `cpp-httplib` (header-only) | REST API, `bind_to_port` + `listen_after_bind` |
+| Deploy Window | `DeployWindowManager` | `QMap + QMutex` | TTL-based window, thread-safe |
+| Decision | `DecisionEngine` | Chain of Responsibility | Window → Jenkins → UNAUTHORIZED |
+| Jenkins (real) | `HttpJenkinsClient` | `curl` subprocess | HTTP/HTTPS, kiểm tra `color` endsWith `_anime` |
+| Jenkins (mock) | `MockJenkinsClient` | `QJsonDocument` | Đọc file JSON cho dev/test |
+| Audit | `AuditLogger` | `QFile + QMutex` | JSON Lines, mở-đóng mỗi lần write, trả `bool` |
+| ES | `ElasticsearchClient` | `curl` subprocess | Direct index API, HTTP/HTTPS |
+| Email | `SmtpNotifier` | Python3 `smtplib` + `QTemporaryFile` | Credentials không lộ trên `ps aux` |
+| Remediation | `JenkinsRemediator` | `curl` subprocess | Re-trigger Jenkins pipeline qua HTTP/HTTPS |
 
-## 3. Luồng dữ liệu chính
-
-### Luồng A — Deploy hợp lệ (không alert)
+### 3.3 Interfaces (Strategy Pattern)
 
 ```
-Jenkins START job
-    → POST /api/v1/deploy-window {action: "OPEN", server, project, valid_until}
-    → Central mở Deploy Window
-    → Ansible thay đổi file
-    → Agent phát hiện → gửi event
-    → Central: trong Deploy Window? YES → AUTHORIZED_CHANGE → log only
-Jenkins END job
-    → POST /api/v1/deploy-window {action: "CLOSE"}
-    → Central đóng Deploy Window
+IFileWatcher          IJenkinsClient        INotifier
+     │                     │                   │
+     ├── InotifyWatcher     ├── HttpJenkinsClient ├── SmtpNotifier
+     └── EbpfWatcher        └── MockJenkinsClient └── (extensible)
 ```
 
-### Luồng B — Shadow Deployment (có alert)
+---
+
+## 4. Luồng dữ liệu
+
+### Luồng A — Deploy hợp lệ (AUTHORIZED_CHANGE)
 
 ```
-User SSH vào server → sửa/xóa/chmod file
-    → inotify báo event
-    → Agent: lấy uid/username từ /proc → gửi event
-    → Central: Deploy Window? NO → UNAUTHORIZED_DRIFT
-    → Ghi audit log JSON
-    → Bắn alert
-    → Optional: trigger Ansible restore
-    ← Toàn bộ trong < 60 giây
+Jenkins START pipeline
+    → POST /api/v1/deploy-window {"action":"OPEN","project":"webapp",
+                                  "server":"prod-01","valid_until":"..."}
+    → DeployWindowManager mở window (TTL tối đa 86400s)
+
+Ansible chạy → thay đổi file trên server
+    → InotifyWatcher / EbpfWatcher phát hiện
+    → Agent: serialize → POST /api/v1/events
+    → Central: DecisionEngine.isOpen() = true → AUTHORIZED_CHANGE
+    → AuditLogger ghi JSON Line → ElasticsearchClient đẩy lên ES
+
+Jenkins END pipeline (post { always })
+    → POST /api/v1/deploy-window {"action":"CLOSE",...}
+    → DeployWindowManager đóng window
 ```
 
-## 4. Quyết định công nghệ
+### Luồng B — Shadow Deployment (UNAUTHORIZED_DRIFT)
+
+```
+Attacker / engineer SSH vào server → sửa file ngoài luồng CI/CD
+    → InotifyWatcher / EbpfWatcher phát hiện (< 1s)
+    → ProcHelper.findPidByOpenFile() → lấy uid, username, process name
+    → Agent enqueue FileEvent → POST /api/v1/events
+
+Central nhận event:
+    → DecisionEngine: isOpen() = NO → isDeployRunning() = NO
+    → Classification = UNAUTHORIZED_DRIFT
+
+    ┌── AuditLogger.write() → /var/log/oob-audit.log (JSON Line)
+    │        └── ElasticsearchClient.index() → Elasticsearch
+    │
+    ├── SmtpNotifier.notify() → email cảnh báo (background subprocess)
+    │
+    └── JenkinsRemediator.trigger() [nếu --jenkins-remediate]:
+            cooldown check (300s per project)
+            → curl -X POST https://jenkins/job/{project}/build
+            → Jenkins re-chạy pipeline → Ansible deploy lại
+            → Jenkinsfile mở Deploy Window trước khi deploy
+            → Các file changes từ re-deploy = AUTHORIZED_CHANGE
+```
+
+### Luồng C — Heartbeat (Health Check)
+
+```
+Agent QTimer mỗi 30s
+    → POST /api/v1/heartbeat {"agent_id", "server", "status":"healthy", "timestamp"}
+    → Central log info (hook cho future online/offline tracking)
+```
+
+---
+
+## 5. Mô hình triển khai
+
+```
+┌──────────────────────────────────────┐
+│  Production Server (VM hoặc bare metal)
+│                                      │
+│  oob-agent (systemd service)         │
+│  config: /etc/oob-agent/config.json  │
+│                                      │
+│  Theo dõi: /opt/webapp/ (ví dụ)      │
+└──────────────┬───────────────────────┘
+               │ HTTPS :8080
+               │
+┌──────────────▼───────────────────────┐
+│  Monitoring Server (có thể cùng máy) │
+│                                      │
+│  oob-central  :8080 (systemd)        │
+│  Elasticsearch :9200 (Docker)        │
+│  Grafana       :3000 (Docker)        │
+│  Jenkins       :8081 (Docker)        │
+└──────────────────────────────────────┘
+```
+
+**Log rotation** (`/etc/logrotate.d/oob-audit`):
+- Daily rotate, giữ 14 ngày, nén, `copytruncate`
+
+**Packaging**: `./deploy/make-deb.sh` → `.deb` với postinst tự enable systemd units
+
+---
+
+## 6. Các quyết định thiết kế
 
 | Quyết định | Lựa chọn | Lý do |
 |---|---|---|
-| File system monitoring | inotify (mandatory) → eBPF (optional) | inotify: đủ dùng, ít phức tạp; eBPF: không bị bypass |
-| Agent-Central transport | HTTP/JSON (REST) | Dễ debug, tương thích Jenkins/ES |
-| HTTP server (Central) | cpp-httplib (header-only) | Không phụ thuộc Qt version |
-| Event serialization | QJsonDocument | Sẵn có trong Qt Core |
-| Audit storage | JSON Lines file → Filebeat → ES | Đơn giản, dễ mở rộng |
-| Alert | HTTP webhook | Tích hợp bất kỳ monitoring system |
+| File monitoring backend | Strategy: inotify (default) / eBPF (bpftrace) | Có thể swap không ảnh hưởng agent logic |
+| HTTP server | `cpp-httplib` header-only, `std::thread` | Không phụ thuộc Qt version, đơn giản |
+| Transport | HTTP hoặc HTTPS (QNetworkAccessManager) | `central_url` dùng `https://` là đủ |
+| Jenkins status check | `curl` subprocess thay `httplib::Client` | curl hỗ trợ HTTPS natively, không cần link OpenSSL |
+| Elasticsearch push | `curl` subprocess | Hỗ trợ HTTPS, no extra Qt deps |
+| SMTP | Python3 `smtplib` qua `QTemporaryFile` | Credentials không hiện trên `ps aux` |
+| Auto-remediation | Gọi Jenkins API re-trigger | Jenkins là source-of-truth; pipeline có credentials và opens deploy window tự động |
+| Audit log | JSON Lines file + ES | File: durable ngay cả khi ES down; ES: queryable |
+| Deploy window | TTL với `valid_until` (tuyệt đối) hoặc `ttl_sec` (tương đối) | Jenkins dùng `valid_until`; test thủ công dùng `ttl_sec` |
+| Idempotency (remediation) | Cooldown map `project → last_trigger_epoch`, 300s | Tránh trigger liên tục khi nhiều events dồn về |
+
+---
+
+## 7. Security considerations
+
+| Điểm | Biện pháp |
+|---|---|
+| Credentials Jenkins trong memory | Không ghi vào disk, chỉ truyền qua HTTPS |
+| SMTP credentials | `QTemporaryFile` script → không hiện trên `ps aux` |
+| Elasticsearch credentials | Passed via `--es-user/--es-pass`, không hardcode |
+| Self-signed cert Jenkins | `--jenkins-insecure` flag (tắt verify khi cần) |
+| Agent → Central TLS | `central_url: "https://..."` trong config.json |
+| Deploy window bounded | TTL tối đa 86400s, reject nếu `valid_until` đã qua |

@@ -12,12 +12,14 @@ class IJenkinsClient;
 class DeployWindowManager;
 class DecisionEngine;
 class INotifier;
-class AnsibleTrigger;
+class JenkinsRemediator;
 
 struct JenkinsConfig {
     QString url;
     QString username;
     QString apiToken;
+    bool    sslVerify = true;  // set false to accept self-signed HTTPS certs
+    bool    failOpen  = false; // true = when Jenkins unreachable, assume authorized (avoid false alerts)
     bool    enabled() const { return !url.isEmpty(); }
 };
 
@@ -34,9 +36,9 @@ public:
                             const QString    &esPass       = "",
                             bool              esHttps      = false,
                             const JenkinsConfig &jenkins   = {},
-                            INotifier        *notifier     = nullptr,
-                            AnsibleTrigger   *ansible      = nullptr,
-                            QObject          *parent       = nullptr);
+                            INotifier          *notifier    = nullptr,
+                            JenkinsRemediator  *remediator  = nullptr,
+                            QObject            *parent      = nullptr);
     ~CentralService() override;
 
     bool start();
@@ -55,7 +57,7 @@ private:
     std::unique_ptr<IJenkinsClient>       m_jenkins;
     std::unique_ptr<DeployWindowManager>  m_windowManager;
     std::unique_ptr<DecisionEngine>       m_decision;
-    INotifier                            *m_notifier = nullptr; // not owned
-    AnsibleTrigger                       *m_ansible  = nullptr; // not owned
+    INotifier                            *m_notifier    = nullptr; // not owned
+    JenkinsRemediator                    *m_remediator  = nullptr; // not owned
     std::thread                           m_serverThread;
 };

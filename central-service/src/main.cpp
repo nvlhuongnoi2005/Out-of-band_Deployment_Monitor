@@ -1,9 +1,10 @@
 #include <QCoreApplication>
 #include <QCommandLineParser>
 #include <QDebug>
+#include "config/CentralConfig.h"
 #include "core/CentralService.h"
 #include "notification/SmtpNotifier.h"
-#include "remediation/AnsibleTrigger.h"
+#include "remediation/JenkinsRemediator.h"
 
 int main(int argc, char *argv[])
 {
@@ -16,36 +17,38 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addVersionOption();
 
-    QCommandLineOption portOption({"p", "port"}, "Port to listen on", "port", "8080");
-    QCommandLineOption auditOption({"a", "audit-log"}, "Audit log path (JSON Lines)", "path", "/tmp/oob-audit.log");
+    // Config file (mọi setting có thể đặt ở đây thay vì gõ flags dài)
+    QCommandLineOption configOption({"c", "config"},
+        "Path to JSON config file (all settings can be set here)", "path", "");
 
-    // Elasticsearch
-    QCommandLineOption esHostOption("es-host",  "Elasticsearch host (empty = disabled)", "host", "");
-    QCommandLineOption esPortOption("es-port",  "Elasticsearch port", "port", "9200");
-    QCommandLineOption esIndexOption("es-index","Elasticsearch index", "index", "oob-audit");
-    QCommandLineOption esUserOption("es-user",  "Elasticsearch username (cloud)", "user", "");
-    QCommandLineOption esPassOption("es-pass",  "Elasticsearch password (cloud)", "pass", "");
+    // CLI flags — override giá trị từ config file nếu được gõ tường minh
+    QCommandLineOption portOption({"p", "port"}, "Port to listen on", "port", "");
+    QCommandLineOption auditOption({"a", "audit-log"}, "Audit log path", "path", "");
+
+    QCommandLineOption esHostOption("es-host",  "Elasticsearch host", "host", "");
+    QCommandLineOption esPortOption("es-port",  "Elasticsearch port", "port", "");
+    QCommandLineOption esIndexOption("es-index","Elasticsearch index", "index", "");
+    QCommandLineOption esUserOption("es-user",  "Elasticsearch username", "user", "");
+    QCommandLineOption esPassOption("es-pass",  "Elasticsearch password", "pass", "");
     QCommandLineOption esHttpsOption("es-https","Use HTTPS for Elasticsearch");
 
-    // Jenkins (empty = use file-based mock)
-    QCommandLineOption jenkinsUrlOption("jenkins-url",   "Jenkins base URL (e.g. http://localhost:8081)", "url", "");
-    QCommandLineOption jenkinsUserOption("jenkins-user", "Jenkins username", "user", "admin");
-    QCommandLineOption jenkinsTokenOption("jenkins-token","Jenkins API token or password", "token", "");
+    QCommandLineOption jenkinsUrlOption("jenkins-url",
+        "Jenkins base URL, e.g. http://localhost:8081", "url", "");
+    QCommandLineOption jenkinsUserOption("jenkins-user", "Jenkins username", "user", "");
+    QCommandLineOption jenkinsTokenOption("jenkins-token", "Jenkins API token", "token", "");
+    QCommandLineOption jenkinsInsecureOption("jenkins-insecure",
+        "Skip TLS cert verification for Jenkins (self-signed certs)");
+    QCommandLineOption jenkinsRemediateOption("jenkins-remediate",
+        "Enable auto-remediation: re-trigger Jenkins pipeline on UNAUTHORIZED_DRIFT");
 
-    // Ansible auto-remediation (FR-12)
-    QCommandLineOption ansiblePlaybookOption("ansible-playbook",
-        "Ansible playbook path (empty = disabled)", "path", "");
-    QCommandLineOption ansibleInventoryOption("ansible-inventory",
-        "Ansible inventory path", "path", "mock/ansible/inventory");
-
-    // SMTP alerts
-    QCommandLineOption smtpHostOption("smtp-host", "SMTP host (empty = disabled)", "host", "");
-    QCommandLineOption smtpPortOption("smtp-port", "SMTP port", "port", "587");
+    QCommandLineOption smtpHostOption("smtp-host", "SMTP host", "host", "");
+    QCommandLineOption smtpPortOption("smtp-port", "SMTP port", "port", "");
     QCommandLineOption smtpUserOption("smtp-user", "SMTP username", "user", "");
     QCommandLineOption smtpPassOption("smtp-pass", "SMTP password", "pass", "");
     QCommandLineOption smtpFromOption("smtp-from", "Sender address", "email", "");
     QCommandLineOption smtpToOption("smtp-to",   "Admin alert address", "email", "");
 
+    parser.addOption(configOption);
     parser.addOption(portOption);
     parser.addOption(auditOption);
     parser.addOption(esHostOption);
@@ -57,8 +60,8 @@ int main(int argc, char *argv[])
     parser.addOption(jenkinsUrlOption);
     parser.addOption(jenkinsUserOption);
     parser.addOption(jenkinsTokenOption);
-    parser.addOption(ansiblePlaybookOption);
-    parser.addOption(ansibleInventoryOption);
+    parser.addOption(jenkinsInsecureOption);
+    parser.addOption(jenkinsRemediateOption);
     parser.addOption(smtpHostOption);
     parser.addOption(smtpPortOption);
     parser.addOption(smtpUserOption);
@@ -69,41 +72,67 @@ int main(int argc, char *argv[])
 
     qInfo() << "=== Out-of-Band Deployment Monitor — Central Service v0.1.0 ===";
 
-    std::unique_ptr<AnsibleTrigger> ansible;
-    if (!parser.value(ansiblePlaybookOption).isEmpty()) {
-        ansible = std::make_unique<AnsibleTrigger>(
-            parser.value(ansiblePlaybookOption),
-            parser.value(ansibleInventoryOption));
-    }
+    // Load config file first (nếu có), sau đó CLI flags override từng field
+    CentralConfig cfg;
+    if (parser.isSet(configOption))
+        cfg = CentralConfig::loadFromFile(parser.value(configOption));
 
-    std::unique_ptr<SmtpNotifier> notifier;
-    if (!parser.value(smtpHostOption).isEmpty()) {
-        notifier = std::make_unique<SmtpNotifier>(
-            parser.value(smtpHostOption),
-            parser.value(smtpPortOption).toInt(),
-            parser.value(smtpUserOption),
-            parser.value(smtpPassOption),
-            parser.value(smtpFromOption),
-            parser.value(smtpToOption));
-    }
+    // CLI overrides — chỉ áp dụng khi flag được gõ tường minh
+    if (parser.isSet(portOption))           cfg.port              = parser.value(portOption).toInt();
+    if (parser.isSet(auditOption))          cfg.auditLogPath      = parser.value(auditOption);
+    if (parser.isSet(esHostOption))         cfg.esHost            = parser.value(esHostOption);
+    if (parser.isSet(esPortOption))         cfg.esPort            = parser.value(esPortOption).toInt();
+    if (parser.isSet(esIndexOption))        cfg.esIndex           = parser.value(esIndexOption);
+    if (parser.isSet(esUserOption))         cfg.esUser            = parser.value(esUserOption);
+    if (parser.isSet(esPassOption))         cfg.esPass            = parser.value(esPassOption);
+    if (parser.isSet(esHttpsOption))        cfg.esHttps           = true;
+    if (parser.isSet(jenkinsUrlOption))     cfg.jenkinsUrl        = parser.value(jenkinsUrlOption);
+    if (parser.isSet(jenkinsUserOption))    cfg.jenkinsUser       = parser.value(jenkinsUserOption);
+    if (parser.isSet(jenkinsTokenOption))   cfg.jenkinsToken      = parser.value(jenkinsTokenOption);
+    if (parser.isSet(jenkinsInsecureOption)) cfg.jenkinsSslVerify = false;
+    if (parser.isSet(jenkinsRemediateOption)) cfg.jenkinsRemediate = true;
+    if (parser.isSet(smtpHostOption))       cfg.smtpHost          = parser.value(smtpHostOption);
+    if (parser.isSet(smtpPortOption))       cfg.smtpPort          = parser.value(smtpPortOption).toInt();
+    if (parser.isSet(smtpUserOption))       cfg.smtpUser          = parser.value(smtpUserOption);
+    if (parser.isSet(smtpPassOption))       cfg.smtpPass          = parser.value(smtpPassOption);
+    if (parser.isSet(smtpFromOption))       cfg.smtpFrom          = parser.value(smtpFromOption);
+    if (parser.isSet(smtpToOption))         cfg.smtpTo            = parser.value(smtpToOption);
 
+    // Jenkins config
     JenkinsConfig jenkins;
-    jenkins.url      = parser.value(jenkinsUrlOption);
-    jenkins.username = parser.value(jenkinsUserOption);
-    jenkins.apiToken = parser.value(jenkinsTokenOption);
+    jenkins.url        = cfg.jenkinsUrl;
+    jenkins.username   = cfg.jenkinsUser;
+    jenkins.apiToken   = cfg.jenkinsToken;
+    jenkins.sslVerify  = cfg.jenkinsSslVerify;
+    jenkins.failOpen   = cfg.jenkinsFailOpen;
+
+    // Auto-remediation
+    std::unique_ptr<JenkinsRemediator> remediator;
+    if (cfg.jenkinsRemediate) {
+        if (!jenkins.enabled()) {
+            qCritical() << "jenkins.remediate=true requires jenkins.url to be set";
+            return 1;
+        }
+        remediator = std::make_unique<JenkinsRemediator>(jenkins);
+        qInfo() << "[Main] Auto-remediation: Jenkins re-trigger enabled";
+    }
+
+    // SMTP notifier
+    std::unique_ptr<SmtpNotifier> notifier;
+    if (!cfg.smtpHost.isEmpty()) {
+        notifier = std::make_unique<SmtpNotifier>(
+            cfg.smtpHost, cfg.smtpPort,
+            cfg.smtpUser, cfg.smtpPass,
+            cfg.smtpFrom, cfg.smtpTo);
+    }
 
     CentralService service(
-        parser.value(portOption).toInt(),
-        parser.value(auditOption),
-        parser.value(esHostOption),
-        parser.value(esPortOption).toInt(),
-        parser.value(esIndexOption),
-        parser.value(esUserOption),
-        parser.value(esPassOption),
-        parser.isSet(esHttpsOption),
+        cfg.port,
+        cfg.auditLogPath,
+        cfg.esHost, cfg.esPort, cfg.esIndex, cfg.esUser, cfg.esPass, cfg.esHttps,
         jenkins,
         notifier.get(),
-        ansible.get());
+        remediator.get());
 
     if (!service.start())
         return 1;

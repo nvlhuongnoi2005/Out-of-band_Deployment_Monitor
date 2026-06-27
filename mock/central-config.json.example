@@ -1,0 +1,30 @@
+{
+  "port": 8080,
+  "audit_log": "/tmp/oob-audit.log",
+
+  "elasticsearch": {
+    "host": "localhost",
+    "port": 9200,
+    "index": "oob-audit",
+    "user": "",
+    "pass": "",
+    "https": false
+  },
+
+  "jenkins": {
+    "url": "http://localhost:8081",
+    "user": "admin",
+    "token": "YOUR_JENKINS_API_TOKEN",
+    "ssl_verify": true,
+    "remediate": true
+  },
+
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "user": "your-sender@gmail.com",
+    "pass": "YOUR_GMAIL_APP_PASSWORD",
+    "from": "your-sender@gmail.com",
+    "to": "admin-alert@gmail.com"
+  }
+}

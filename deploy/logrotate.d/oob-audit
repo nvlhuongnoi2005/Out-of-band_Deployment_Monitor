@@ -1,0 +1,16 @@
+# /etc/logrotate.d/oob-audit
+# Rotate the OOB Deployment Monitor audit log daily, keep 14 days.
+# copytruncate: oob-central re-opens the file on every write, so standard
+# rename-based rotation works; copytruncate is added as a belt-and-suspenders
+# guard against any brief open-file window during rotation.
+
+/var/log/oob-audit.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0640 root root
+}

@@ -166,20 +166,19 @@ Mỗi dòng trong file audit log là một JSON object (JSON Lines format).
 
 ```json
 {
-  "event_id":        "550e8400-e29b-41d4-a716-446655440000",
-  "server":          "prod-server-01",
-  "project":         "demo-app",
-  "path":            "/tmp/demo-prod-app/config/db.yaml",
-  "event_type":      "MODIFY",
-  "timestamp":       "2026-06-21T18:30:00.123+07:00",
-  "uid":             0,
-  "username":        "ansible",
-  "pid":             9876,
-  "process_name":    "python3",
-  "classification":  "AUTHORIZED_CHANGE",
-  "jenkins_job":     "deploy-demo-app",
-  "jenkins_build":   153,
-  "detected_at":     "2026-06-21T18:30:00.890+07:00"
+  "event_id":       "550e8400-e29b-41d4-a716-446655440000",
+  "agent_id":       "agent-prod-01",
+  "server":         "prod-server-01",
+  "project":        "demo-app",
+  "path":           "/tmp/demo-prod-app/config/db.yaml",
+  "event_type":     "MODIFY",
+  "timestamp":      "2026-06-21T11:30:00.123Z",
+  "uid":            0,
+  "username":       "ansible",
+  "pid":            9876,
+  "process_name":   "python3",
+  "classification": "AUTHORIZED_CHANGE",
+  "detected_at":    "2026-06-21T11:30:00.890Z"
 }
 ```
 
@@ -187,43 +186,51 @@ Mỗi dòng trong file audit log là một JSON object (JSON Lines format).
 
 ```json
 {
-  "event_id":        "661f9511-f30c-52e5-b827-557766551111",
-  "server":          "prod-server-01",
-  "project":         "demo-app",
-  "path":            "/tmp/demo-prod-app/config/db.yaml",
-  "event_type":      "MODIFY",
-  "timestamp":       "2026-06-21T19:00:00.456+07:00",
-  "uid":             1001,
-  "username":        "devops_john",
-  "pid":             23456,
-  "process_name":    "vim",
-  "classification":  "UNAUTHORIZED_DRIFT",
-  "jenkins_job":     null,
-  "jenkins_build":   null,
-  "detected_at":     "2026-06-21T19:00:01.120+07:00"
+  "event_id":       "661f9511-f30c-52e5-b827-557766551111",
+  "agent_id":       "agent-prod-01",
+  "server":         "prod-server-01",
+  "project":        "demo-app",
+  "path":           "/tmp/demo-prod-app/config/db.yaml",
+  "event_type":     "MODIFY",
+  "timestamp":      "2026-06-21T12:00:00.456Z",
+  "uid":            1001,
+  "username":       "devops_john",
+  "pid":            23456,
+  "process_name":   "vim",
+  "classification": "UNAUTHORIZED_DRIFT",
+  "detected_at":    "2026-06-21T12:00:01.120Z"
 }
 ```
 
+> **Ghi chú:** Tất cả timestamps dùng UTC với suffix `Z`. Central Service không ghi `jenkins_job`/`jenkins_build` vào audit log — classification được quyết định bởi Deploy Window + Jenkins job color (`_anime`), kết quả chỉ là `AUTHORIZED_CHANGE` hoặc `UNAUTHORIZED_DRIFT`.
+
 **Mô tả các trường audit log:**
 
-| Trường | Mô tả |
-|---|---|
-| event_id | ID gốc từ Agent |
-| classification | AUTHORIZED_CHANGE hoặc UNAUTHORIZED_DRIFT |
-| jenkins_job | Tên job Jenkins nếu là AUTHORIZED_CHANGE, null nếu không |
-| jenkins_build | Số build Jenkins nếu là AUTHORIZED_CHANGE, null nếu không |
-| detected_at | Thời điểm Central Service xử lý xong và ra quyết định |
+| Trường | Kiểu | Mô tả |
+|---|---|---|
+| event_id | string | UUID, ID gốc từ Agent |
+| agent_id | string | Định danh agent gửi event |
+| server | string | Tên server nơi xảy ra thay đổi |
+| project | string | Tên project/application |
+| path | string | Đường dẫn tuyệt đối của file thay đổi |
+| event_type | string | CREATE / MODIFY / DELETE / ATTRIB / MOVED_FROM / MOVED_TO |
+| timestamp | string | UTC ISO 8601, thời điểm xảy ra trên server |
+| uid | int | Unix user ID của process thực hiện thay đổi |
+| username | string | Tên user tương ứng uid |
+| pid | int | Process ID, -1 nếu không xác định được |
+| process_name | string | Tên tiến trình, "unknown" nếu không xác định được |
+| classification | string | AUTHORIZED_CHANGE hoặc UNAUTHORIZED_DRIFT |
+| detected_at | string | UTC ISO 8601, thời điểm Central quyết định xong |
 
 ---
 
-## 4. Cấu trúc thư mục audit log
+## 4. Audit Log — vị trí file
 
-```
-/var/log/reconciliation/
-└── audit-2026-06-21.jsonl       ← JSON Lines, một event mỗi dòng
-```
+File mặc định: `/var/log/oob-audit.log` (có thể cấu hình qua `audit_log` trong JSON config hoặc `--audit-log` CLI flag).
 
-Filebeat sẽ đọc file này và đẩy vào Elasticsearch.
+Format: JSON Lines — mỗi event là một dòng JSON, dễ đọc bằng `jq` hoặc `grep`.
+
+Central Service tự ghi file này sau mỗi classification và đẩy event lên Elasticsearch qua HTTP (không dùng Filebeat). Logrotate quản lý rotation và nén (`/etc/logrotate.d/oob-audit`).
 
 ---
 

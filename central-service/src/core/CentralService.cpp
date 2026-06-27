@@ -6,7 +6,7 @@
 #include "window/DeployWindowManager.h"
 #include "decision/DecisionEngine.h"
 #include "notification/INotifier.h"
-#include "remediation/AnsibleTrigger.h"
+#include "remediation/JenkinsRemediator.h"
 
 #include <httplib.h>
 #include <QJsonDocument>
@@ -109,7 +109,7 @@ CentralService::CentralService(int port,
                                bool                esHttps,
                                const JenkinsConfig &jenkins,
                                INotifier          *notifier,
-                               AnsibleTrigger     *ansible,
+                               JenkinsRemediator  *remediator,
                                QObject            *parent)
     : QObject(parent)
     , m_port(port)
@@ -121,13 +121,12 @@ CentralService::CentralService(int port,
                                         esHost, esPort, esIndex, esUser, esPass, esHttps))
     , m_jenkins(jenkins.enabled()
                     ? static_cast<std::unique_ptr<IJenkinsClient>>(
-                          std::make_unique<HttpJenkinsClient>(
-                              jenkins.url, jenkins.username, jenkins.apiToken))
+                          std::make_unique<HttpJenkinsClient>(jenkins))
                     : std::make_unique<MockJenkinsClient>("mock/jenkins-state.json"))
     , m_windowManager(std::make_unique<DeployWindowManager>())
     , m_decision(std::make_unique<DecisionEngine>(m_jenkins.get(), m_windowManager.get()))
     , m_notifier(notifier)
-    , m_ansible(ansible)
+    , m_remediator(remediator)
 {}
 
 CentralService::~CentralService() { stop(); }
@@ -148,7 +147,7 @@ bool CentralService::start()
     qInfo() << "[Central] Audit log    :" << m_auditLogPath;
     qInfo() << "[Central] Elasticsearch:" << (m_esClient ? "enabled" : "disabled");
     qInfo() << "[Central] Email alerts :" << (m_notifier ? "enabled" : "disabled");
-    qInfo() << "[Central] Auto-remediation:" << (m_ansible  ? "enabled" : "disabled");
+    qInfo() << "[Central] Auto-remediation:" << (m_remediator ? "enabled (Jenkins re-trigger)" : "disabled");
     return true;
 }
 
@@ -221,7 +220,7 @@ void CentralService::setupRoutes()
         audit["pid"]            = pid;
         audit["process_name"]   = procName;
         audit["classification"] = clsStr;
-        audit["detected_at"]     = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+        audit["detected_at"]     = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
         const QString auditJson =
             QString::fromUtf8(QJsonDocument(audit).toJson(QJsonDocument::Compact));
@@ -236,8 +235,8 @@ void CentralService::setupRoutes()
         if (m_esClient)
             m_esClient->index(auditJson);
 
-        if (m_ansible && cls == Classification::UNAUTHORIZED_DRIFT)
-            m_ansible->trigger(server, project, path, eventType);
+        if (m_remediator && cls == Classification::UNAUTHORIZED_DRIFT)
+            m_remediator->trigger(server, project, path, eventType);
 
         if (m_notifier && cls == Classification::UNAUTHORIZED_DRIFT) {
             const QString subject = QString("[OOB ALERT] Shadow deployment on %1").arg(server);

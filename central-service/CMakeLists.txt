@@ -3,6 +3,8 @@ find_package(Threads REQUIRED)
 
 set(CENTRAL_SOURCES
     src/main.cpp
+    src/config/CentralConfig.h
+    src/config/CentralConfig.cpp
     src/core/CentralService.h
     src/core/CentralService.cpp
     src/core/AuditLogger.h
@@ -21,8 +23,8 @@ set(CENTRAL_SOURCES
     src/notification/INotifier.h
     src/notification/SmtpNotifier.h
     src/notification/SmtpNotifier.cpp
-    src/remediation/AnsibleTrigger.h
-    src/remediation/AnsibleTrigger.cpp
+    src/remediation/JenkinsRemediator.h
+    src/remediation/JenkinsRemediator.cpp
 )
 
 add_executable(oob-central ${CENTRAL_SOURCES})

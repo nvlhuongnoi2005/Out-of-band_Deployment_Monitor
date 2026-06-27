@@ -137,7 +137,7 @@ void InotifyWatcher::processEvent(const struct inotify_event *e)
     ev.eventId   = QUuid::createUuid().toString(QUuid::WithoutBraces);
     ev.path      = fullPath;
     ev.eventType = evType;
-    ev.timestamp = QDateTime::currentDateTime();
+    ev.timestamp = QDateTime::currentDateTimeUtc(); // UTC + Z suffix → ES indexes correctly
 
     int pid = ProcHelper::findPidByOpenFile(fullPath);
     if (pid > 0) {

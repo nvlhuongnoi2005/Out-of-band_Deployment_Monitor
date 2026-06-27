@@ -1,6 +1,9 @@
 # Local planning notes
 process.md
 
+# Config files containing credentials — never commit
+mock/central-config.json
+
 # Build outputs
 build/
 cmake-build-*/
