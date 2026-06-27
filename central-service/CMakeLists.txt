@@ -10,8 +10,6 @@ set(CENTRAL_SOURCES
     src/core/AuditLogger.h
     src/core/AuditLogger.cpp
     src/jenkins/IJenkinsClient.h
-    src/jenkins/MockJenkinsClient.h
-    src/jenkins/MockJenkinsClient.cpp
     src/jenkins/HttpJenkinsClient.h
     src/jenkins/HttpJenkinsClient.cpp
     src/decision/DecisionEngine.h

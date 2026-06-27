@@ -114,12 +114,21 @@ Jenkins gửi thông báo khi bắt đầu và kết thúc một job deploy,
 
 ```json
 {
-  "server":       "prod-server-01",
-  "project":      "demo-app",
-  "job":          "deploy-demo-app",
-  "build_number": 153,
-  "action":       "OPEN",
-  "valid_until":  "2026-06-21T18:40:00+07:00"
+  "server":      "prod-server-01",
+  "project":     "demo-app",
+  "action":      "OPEN",
+  "valid_until": "2026-06-21T18:40:00+07:00"
+}
+```
+
+Hoặc dùng TTL tương đối (tiện khi test thủ công):
+
+```json
+{
+  "server":  "prod-server-01",
+  "project": "demo-app",
+  "action":  "OPEN",
+  "ttl_sec": 600
 }
 ```
 
@@ -127,11 +136,9 @@ Jenkins gửi thông báo khi bắt đầu và kết thúc một job deploy,
 
 ```json
 {
-  "server":       "prod-server-01",
-  "project":      "demo-app",
-  "job":          "deploy-demo-app",
-  "build_number": 153,
-  "action":       "CLOSE"
+  "server":  "prod-server-01",
+  "project": "demo-app",
+  "action":  "CLOSE"
 }
 ```
 
@@ -142,7 +149,8 @@ Jenkins gửi thông báo khi bắt đầu và kết thúc một job deploy,
 | server | string | Server đang được deploy |
 | project | string | Project đang được deploy |
 | action | enum | OPEN / CLOSE |
-| valid_until | string (ISO 8601) | (Chỉ khi OPEN) Thời điểm Deploy Window hết hạn |
+| valid_until | string (ISO 8601) | (OPEN, hoặc dùng ttl_sec) Thời điểm hết hạn tuyệt đối |
+| ttl_sec | integer | (OPEN, thay thế valid_until) Số giây Deploy Window tồn tại |
 
 > **Lưu ý:** `valid_until` nên đặt = thời gian dự kiến deploy xong + buffer 2 phút.
 > Central Service sẽ tự đóng Deploy Window khi hết hạn TTL dù Jenkins không gửi CLOSE.
@@ -226,31 +234,9 @@ Mỗi dòng trong file audit log là một JSON object (JSON Lines format).
 
 ## 4. Audit Log — vị trí file
 
-File mặc định: `/var/log/oob-audit.log` (có thể cấu hình qua `audit_log` trong JSON config hoặc `--audit-log` CLI flag).
+File mặc định: `/tmp/oob-audit.log` (có thể cấu hình qua `audit_log` trong JSON config hoặc `--audit-log` CLI flag). Khi triển khai production, nên đặt thành `/var/log/oob-audit.log` để logrotate quản lý.
 
 Format: JSON Lines — mỗi event là một dòng JSON, dễ đọc bằng `jq` hoặc `grep`.
 
 Central Service tự ghi file này sau mỗi classification và đẩy event lên Elasticsearch qua HTTP (không dùng Filebeat). Logrotate quản lý rotation và nén (`/etc/logrotate.d/oob-audit`).
 
----
-
-## 5. Mock Jenkins API (dùng khi chưa có Jenkins thật)
-
-Tạo file `mock/jenkins-state.json` để giả lập trạng thái Jenkins:
-
-```json
-{
-  "active_deployments": [
-    {
-      "server":  "prod-server-01",
-      "project": "demo-app",
-      "job":     "deploy-demo-app",
-      "build":   153,
-      "until":   "2026-06-21T18:40:00+07:00"
-    }
-  ]
-}
-```
-
-Central Service đọc file này thay vì gọi Jenkins REST API thật.
-Khi demo, chỉnh sửa file này để mô phỏng các kịch bản.

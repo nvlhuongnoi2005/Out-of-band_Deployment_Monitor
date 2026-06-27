@@ -16,7 +16,7 @@ Classification DecisionEngine::classify(const QString &project, const QString &s
         return Classification::AUTHORIZED_CHANGE;
 
     // Fallback: check if Jenkins has an active job right now
-    if (m_jenkins->isDeployRunning(project, server))
+    if (m_jenkins && m_jenkins->isDeployRunning(project, server))
         return Classification::AUTHORIZED_CHANGE;
 
     return Classification::UNAUTHORIZED_DRIFT;

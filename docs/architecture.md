@@ -269,7 +269,7 @@ Agent QTimer mỗi 30s
 **Log rotation** (`/etc/logrotate.d/oob-audit`):
 - Daily rotate, giữ 14 ngày, nén, `copytruncate`
 
-**Packaging**: `./deploy/make-deb.sh` → `.deb` với postinst tự enable systemd units
+**Packaging**: `./deploy/make-deb-agent.sh` và `./deploy/make-deb-central.sh` → hai gói `.deb` riêng biệt, postinst tự enable systemd units
 
 ---
 

@@ -1,21 +1,45 @@
 // Jenkins pipeline for webapp-deploy job.
-// Automatically opens/closes the OOB Deploy Window so the monitor
-// classifies Ansible file changes as AUTHORIZED_CHANGE, not UNAUTHORIZED_DRIFT.
 //
-// Configure in Jenkins:
-//   New Item → Pipeline → Pipeline script from SCM → this file
-//   Or paste into Pipeline script directly.
+// Architecture:
+//   Jenkins (CI/CD) → Ansible (deploy executor) → SSH vào VM → thay đổi file
+//   Agent trên VM phát hiện thay đổi → Central phân loại AUTHORIZED_CHANGE
+//
+// Hai chế độ:
+//   LOCAL — deploy trực tiếp trên Jenkins agent (demo 1 máy)
+//   VM    — Jenkins gọi Ansible để deploy lên VM qua SSH (demo 2 máy)
+//
+// Cấu hình trong Jenkins:
+//   New Item → Pipeline → Pipeline script from SCM → trỏ vào file này
+//   Hoặc paste trực tiếp vào Pipeline script.
 
 pipeline {
     agent any
 
+    parameters {
+        string(
+            name: 'VM_IP',
+            defaultValue: '',
+            description: 'IP của VM production, ví dụ: 192.168.1.50  (blank = local mode)'
+        )
+        string(
+            name: 'VM_USER',
+            defaultValue: 'lap',
+            description: 'SSH user trên VM'
+        )
+        string(
+            name: 'OOB_SERVER_NAME',
+            defaultValue: 'local-demo',
+            description: 'Phải khớp với trường "server" trong agent-config.json trên VM'
+        )
+    }
+
     environment {
-        // IP of the host machine reachable from inside the Jenkins container.
-        // On Docker Desktop / Linux: use host.docker.internal or 172.17.0.1
+        // Jenkins chạy trong Docker; giao tiếp với oob-central trên host qua Docker bridge.
+        // Linux Docker: 172.17.0.1
         CENTRAL_URL = 'http://172.17.0.1:8080'
         OOB_PROJECT = 'webapp'
-        OOB_SERVER  = 'local-demo'
-        // Deploy window stays open for 10 minutes; Central auto-closes if CLOSE not received.
+        OOB_SERVER  = "${params.OOB_SERVER_NAME}"
+        // Deploy window mở 10 phút; Central tự đóng khi hết TTL nếu không nhận CLOSE.
         VALID_UNTIL = sh(returnStdout: true,
                          script: "date -u -d '+10 minutes' '+%Y-%m-%dT%H:%M:%S+00:00'").trim()
     }
@@ -32,20 +56,35 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy via Ansible') {
             steps {
-                sh '''
-                    echo "=== Simulating Ansible deploy ==="
-                    mkdir -p /tmp/demo-prod-app/config
-
-                    echo '{"version":"2.0.0","deployed_by":"jenkins","env":"prod"}' \
-                        > /tmp/demo-prod-app/config/app.json
-
-                    echo '[database]\nhost=db.internal\nport=5432' \
-                        > /tmp/demo-prod-app/config/db.conf
-
-                    echo "Deploy done at $(date)"
-                '''
+                script {
+                    if (params.VM_IP?.trim()) {
+                        // VM mode: Jenkins gọi Ansible → Ansible SSH vào VM và deploy
+                        // Trong thực tế: ansible-playbook trỏ vào playbook của team app
+                        // Yêu cầu: credential 'vm-deploy-key' (SSH private key) trong Jenkins
+                        echo "VM mode: Ansible deploying to ${params.VM_USER}@${params.VM_IP}"
+                        sshagent(credentials: ['vm-deploy-key']) {
+                            sh """
+                                ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
+                                    -i '${params.VM_IP},' \\
+                                    -u '${params.VM_USER}' \\
+                                    /path/to/your/webapp-deploy.yml
+                            """
+                        }
+                    } else {
+                        // Local mode: deploy trực tiếp trên Jenkins agent (demo 1 máy)
+                        echo "Local mode: deploying on Jenkins agent"
+                        sh '''
+                            mkdir -p /tmp/demo-prod-app/config /tmp/demo-prod-app/scripts
+                            echo \'{"version":"2.0.0","deployed_by":"ansible","env":"prod"}\' \
+                                > /tmp/demo-prod-app/config/app.json
+                            printf \'[database]\nhost=db.internal\nport=5432\npool=10\n\' \
+                                > /tmp/demo-prod-app/config/db.conf
+                            echo "Deploy done at $(date)"
+                        '''
+                    }
+                }
             }
         }
     }

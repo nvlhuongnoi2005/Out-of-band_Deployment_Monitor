@@ -20,7 +20,7 @@
 |---|---|---|---|
 | FR-10 | eBPF monitoring | Thay thế inotify bằng eBPF để giám sát ở tầng kernel | Agent / EbpfWatcher |
 | FR-11 | Grafana Dashboard | Dashboard hiển thị Configuration Drift theo thời gian, đánh dấu server vi phạm | Grafana / dashboard.json |
-| FR-12 | Auto-Remediation | Khi phát hiện UNAUTHORIZED_DRIFT, trigger Ansible chạy lại playbook restore | Central / AnsibleTrigger |
+| FR-12 | Auto-Remediation | Khi phát hiện UNAUTHORIZED_DRIFT, gọi Jenkins API để re-trigger pipeline deploy, Ansible khôi phục lại trạng thái đúng | Central / JenkinsRemediator |
 | FR-13 | Push Elasticsearch | Central gọi trực tiếp ES REST API thay vì dùng Filebeat | Central / ElasticsearchClient |
 | FR-14 | Đóng gói Linux service | Agent đóng gói thành systemd service, phân phối qua RPM/DEB | deploy/ |
 

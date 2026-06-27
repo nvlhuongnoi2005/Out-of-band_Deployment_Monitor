@@ -1,7 +1,6 @@
 #include "CentralService.h"
 #include "AuditLogger.h"
 #include "elasticsearch/ElasticsearchClient.h"
-#include "jenkins/MockJenkinsClient.h"
 #include "jenkins/HttpJenkinsClient.h"
 #include "window/DeployWindowManager.h"
 #include "decision/DecisionEngine.h"
@@ -120,9 +119,8 @@ CentralService::CentralService(int port,
                                   : std::make_unique<ElasticsearchClient>(
                                         esHost, esPort, esIndex, esUser, esPass, esHttps))
     , m_jenkins(jenkins.enabled()
-                    ? static_cast<std::unique_ptr<IJenkinsClient>>(
-                          std::make_unique<HttpJenkinsClient>(jenkins))
-                    : std::make_unique<MockJenkinsClient>("mock/jenkins-state.json"))
+                    ? std::make_unique<HttpJenkinsClient>(jenkins)
+                    : nullptr)
     , m_windowManager(std::make_unique<DeployWindowManager>())
     , m_decision(std::make_unique<DecisionEngine>(m_jenkins.get(), m_windowManager.get()))
     , m_notifier(notifier)
