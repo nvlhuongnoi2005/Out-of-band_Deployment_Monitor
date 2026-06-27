@@ -28,6 +28,7 @@ fi
 rm -rf "$PKG_DIR"
 mkdir -p "$PKG_DIR/DEBIAN"
 mkdir -p "$PKG_DIR/usr/local/bin"
+mkdir -p "$PKG_DIR/etc/oob-central"
 mkdir -p "$PKG_DIR/etc/logrotate.d"
 mkdir -p "$PKG_DIR/lib/systemd/system"
 
@@ -38,6 +39,9 @@ strip --strip-unneeded "$PKG_DIR/usr/local/bin/oob-central"
 # ── Systemd unit + logrotate ──────────────────────────────────────────────────
 cp "$SCRIPT_DIR/oob-central.service"    "$PKG_DIR/lib/systemd/system/oob-central.service"
 cp "$SCRIPT_DIR/logrotate.d/oob-audit"  "$PKG_DIR/etc/logrotate.d/oob-audit"
+
+# ── Default config ────────────────────────────────────────────────────────────
+cp "$REPO_DIR/mock/central-config.json.example" "$PKG_DIR/etc/oob-central/config.json"
 
 # ── DEBIAN/control ────────────────────────────────────────────────────────────
 cat > "$PKG_DIR/DEBIAN/control" << EOF
@@ -57,6 +61,7 @@ Description: Out-of-Band Deployment Monitor — Central Service
 EOF
 
 cat > "$PKG_DIR/DEBIAN/conffiles" << 'EOF'
+/etc/oob-central/config.json
 /etc/logrotate.d/oob-audit
 EOF
 
@@ -66,13 +71,10 @@ set -e
 systemctl daemon-reload
 systemctl enable oob-central.service
 echo ""
-echo "oob-central installed. Start with the required flags:"
-echo "  systemctl edit oob-central   # add ExecStart flags for your environment"
-echo "  systemctl start oob-central"
-echo ""
-echo "Minimum flags: --port 8080 --audit-log /var/log/oob-audit.log"
-echo "With Jenkins : add --jenkins-url https://jenkins:8443 --jenkins-token <token>"
-echo "With ES      : add --es-host localhost --es-port 9200"
+echo "oob-central installed. Next steps:"
+echo "  1. Edit /etc/oob-central/config.json  (set jenkins.url, jenkins.token, smtp, ...)"
+echo "  2. systemctl start oob-central"
+echo "  3. systemctl status oob-central"
 EOF
 chmod 755 "$PKG_DIR/DEBIAN/postinst"
 
