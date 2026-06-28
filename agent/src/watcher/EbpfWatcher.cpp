@@ -52,9 +52,10 @@ bool EbpfWatcher::start(const QStringList &directories)
 
     m_proc = new QProcess(this);
 
-    // BPFTRACE_STRLEN: max path length captured in kernel; 256 covers typical paths
+    // Keep this conservative: older bpftrace builds reject large BPFTRACE_STRLEN
+    // values before probes attach. 128 covers the demo paths and most service config paths.
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("BPFTRACE_STRLEN", "256");
+    env.insert("BPFTRACE_STRLEN", "128");
     m_proc->setProcessEnvironment(env);
 
     connect(m_proc, &QProcess::readyReadStandardOutput,
