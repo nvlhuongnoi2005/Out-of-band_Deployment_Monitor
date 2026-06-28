@@ -52,10 +52,10 @@ bool EbpfWatcher::start(const QStringList &directories)
 
     m_proc = new QProcess(this);
 
-    // Keep this conservative: older bpftrace builds reject large BPFTRACE_STRLEN
-    // values before probes attach. 128 covers the demo paths and most service config paths.
+    // Keep this conservative: older bpftrace builds keep strings on the 512-byte
+    // BPF stack, so larger values can make probes fail before they attach.
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert("BPFTRACE_STRLEN", "128");
+    env.insert("BPFTRACE_STRLEN", "64");
     m_proc->setProcessEnvironment(env);
 
     connect(m_proc, &QProcess::readyReadStandardOutput,
