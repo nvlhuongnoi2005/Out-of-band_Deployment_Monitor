@@ -116,11 +116,17 @@ QString EbpfWatcher::buildScript(const QStringList &dirs) const
 
     const QString pathFilter = makeFilter("$path", dirs);
     const QString oldFilter  = makeFilter("$old",  dirs);
+    const QString newFilter  = makeFilter("$new",  dirs);
 
-    // Template uses uppercase placeholders to avoid conflict with bpftrace % format specs
+    // Template uses uppercase placeholders to avoid conflict with bpftrace % format specs.
+    // No BEGIN{} block: Ubuntu's bpftrace apt package is often compiled without USDT
+    // support, making BEGIN fail with "Could not resolve symbol: BEGIN_trigger".
+    // We detect readiness via stderr ("Attaching N probes...") instead.
+    //
+    // Note: tracepoints receive args->filename as the raw userspace string — if a
+    // caller uses a relative path the filter will not match. Use absolute paths
+    // (e.g. "echo x > /opt/webapp/file") or watch tools that expand paths internally.
     QString script = R"SCRIPT(
-BEGIN { printf("READY\n"); }
-
 // ─── openat: file create/modify ───────────────────────────────────────────────
 tracepoint:syscalls:sys_enter_openat
 {
@@ -137,7 +143,7 @@ tracepoint:syscalls:sys_enter_openat
   }
 }
 
-// ─── unlinkat: file delete ────────────────────────────────────────────────────
+// ─── unlink/unlinkat: file delete ─────────────────────────────────────────────
 tracepoint:syscalls:sys_enter_unlinkat
 {
   $path = str(args->pathname);
@@ -146,14 +152,31 @@ tracepoint:syscalls:sys_enter_unlinkat
   }
 }
 
-// ─── renameat2: file move ─────────────────────────────────────────────────────
+tracepoint:syscalls:sys_enter_unlink
+{
+  $path = str(args->pathname);
+  if (PATH_FILTER) {
+    printf("DELETE|%s|%d|%s|%d\n", $path, uid, comm, pid);
+  }
+}
+
+// ─── renameat2: file moved or atomic save (nano/vim) ─────────────────────────
+// Split into two probe blocks — each gets its own 512-byte BPF stack frame to
+// avoid overflow when BPFTRACE_STRLEN bytes are allocated per string variable.
 tracepoint:syscalls:sys_enter_renameat2
 {
   $old = str(args->oldname);
   if (OLD_FILTER) {
-    $new = str(args->newname);
     printf("MOVED_FROM|%s|%d|%s|%d\n", $old, uid, comm, pid);
-    printf("MOVED_TO|%s|%d|%s|%d\n", $new, uid, comm, pid);
+    printf("MOVED_TO|%s|%d|%s|%d\n",   str(args->newname), uid, comm, pid);
+  }
+}
+
+tracepoint:syscalls:sys_enter_renameat2
+{
+  $new = str(args->newname);
+  if (NEW_FILTER) {
+    printf("CREATE|%s|%d|%s|%d\n", $new, uid, comm, pid);
   }
 }
 
@@ -169,6 +192,7 @@ tracepoint:syscalls:sys_enter_fchmodat
 
     script.replace("PATH_FILTER", pathFilter);
     script.replace("OLD_FILTER",  oldFilter);
+    script.replace("NEW_FILTER",  newFilter);
     return script;
 }
 
@@ -183,19 +207,22 @@ void EbpfWatcher::onReadyRead()
         const QByteArray line = m_buf.left(pos).trimmed();
         m_buf = m_buf.mid(pos + 1);
 
-        if (line == "READY") {
-            qInfo() << "[eBPF] Probes attached, monitoring active";
-        } else if (!line.isEmpty()) {
+        if (!line.isEmpty())
             parseLine(line);
-        }
     }
 }
 
 void EbpfWatcher::onStderrReady()
 {
-    // bpftrace prints "Attaching N probes..." and warnings to stderr — log as debug
     const QByteArray err = m_proc->readAllStandardError().trimmed();
-    if (!err.isEmpty())
+    if (err.isEmpty()) return;
+
+    // bpftrace prints "Attaching N probes..." to stderr once all probes are loaded.
+    // We use this as the "ready" signal instead of a BEGIN{} block, because
+    // BEGIN requires USDT support which is missing from Ubuntu's apt bpftrace build.
+    if (err.contains("Attaching") && err.contains("probe"))
+        qInfo() << "[eBPF] Probes attached, monitoring active";
+    else
         qDebug() << "[eBPF]" << err;
 }
 

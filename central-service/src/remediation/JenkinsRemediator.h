@@ -21,7 +21,7 @@
 // HTTPS: supported (curl backend), use sslVerify=false for self-signed certs
 class JenkinsRemediator {
 public:
-    explicit JenkinsRemediator(const JenkinsConfig &config, int cooldownSec = 300);
+    explicit JenkinsRemediator(const JenkinsConfig &config, int cooldownSec = 30);
 
     // Trigger a Jenkins re-deploy for the given project.
     // Fire-and-forget: runs in a detached thread, does not block the caller.

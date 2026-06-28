@@ -103,6 +103,9 @@ int main(int argc, char *argv[])
     jenkins.url        = cfg.jenkinsUrl;
     jenkins.username   = cfg.jenkinsUser;
     jenkins.apiToken   = cfg.jenkinsToken;
+    jenkins.remediationVmIp     = cfg.jenkinsRemediationVmIp;
+    jenkins.remediationVmUser   = cfg.jenkinsRemediationVmUser;
+    jenkins.remediationServer   = cfg.jenkinsRemediationServer;
     jenkins.sslVerify  = cfg.jenkinsSslVerify;
     jenkins.failOpen   = cfg.jenkinsFailOpen;
 
@@ -114,7 +117,6 @@ int main(int argc, char *argv[])
             return 1;
         }
         remediator = std::make_unique<JenkinsRemediator>(jenkins);
-        qInfo() << "[Main] Auto-remediation: Jenkins re-trigger enabled";
     }
 
     // SMTP notifier

@@ -1,16 +1,12 @@
-// Jenkins pipeline for webapp-deploy job.
+// Pipeline: webapp deploy + remediation
 //
-// Architecture:
-//   Jenkins (CI/CD) → Ansible (deploy executor) → SSH vào VM → thay đổi file
+// Luồng bình thường (CI/CD):
+//   Jenkins mở Deploy Window → Ansible SSH vào VM → restore/deploy file → đóng window
 //   Agent trên VM phát hiện thay đổi → Central phân loại AUTHORIZED_CHANGE
 //
-// Hai chế độ:
-//   LOCAL — deploy trực tiếp trên Jenkins agent (demo 1 máy)
-//   VM    — Jenkins gọi Ansible để deploy lên VM qua SSH (demo 2 máy)
-//
-// Cấu hình trong Jenkins:
-//   New Item → Pipeline → Pipeline script from SCM → trỏ vào file này
-//   Hoặc paste trực tiếp vào Pipeline script.
+// Luồng remediation (tự động từ Central):
+//   Central phát hiện UNAUTHORIZED_DRIFT → POST /job/webapp/build (không có tham số)
+//   → Jenkins chạy pipeline với VM_IP mặc định → restore file về đúng trạng thái
 
 pipeline {
     agent any
@@ -18,8 +14,8 @@ pipeline {
     parameters {
         string(
             name: 'VM_IP',
-            defaultValue: '',
-            description: 'IP của VM production, ví dụ: 192.168.1.50  (blank = local mode)'
+            defaultValue: '192.168.1.16',
+            description: 'IP của VM đang chạy oob-agent'
         )
         string(
             name: 'VM_USER',
@@ -28,20 +24,20 @@ pipeline {
         )
         string(
             name: 'OOB_SERVER_NAME',
-            defaultValue: 'local-demo',
-            description: 'Phải khớp với trường "server" trong agent-config.json trên VM'
+            defaultValue: 'prod-server-01',
+            description: 'Phải khớp với trường "server" trong agent config'
         )
     }
 
     environment {
         // Jenkins chạy trong Docker; giao tiếp với oob-central trên host qua Docker bridge.
-        // Linux Docker: 172.17.0.1
         CENTRAL_URL = 'http://172.17.0.1:8080'
         OOB_PROJECT = 'webapp'
         OOB_SERVER  = "${params.OOB_SERVER_NAME}"
-        // Deploy window mở 10 phút; Central tự đóng khi hết TTL nếu không nhận CLOSE.
-        VALID_UNTIL = sh(returnStdout: true,
-                         script: "date -u -d '+10 minutes' '+%Y-%m-%dT%H:%M:%S+00:00'").trim()
+        VALID_UNTIL = sh(
+            returnStdout: true,
+            script: "date -u -d '+10 minutes' '+%Y-%m-%dT%H:%M:%S+00:00'"
+        ).trim()
     }
 
     stages {
@@ -56,34 +52,21 @@ pipeline {
             }
         }
 
-        stage('Deploy via Ansible') {
+        stage('Restore files on VM') {
             steps {
-                script {
-                    if (params.VM_IP?.trim()) {
-                        // VM mode: Jenkins gọi Ansible → Ansible SSH vào VM và deploy
-                        // Trong thực tế: ansible-playbook trỏ vào playbook của team app
-                        // Yêu cầu: credential 'vm-deploy-key' (SSH private key) trong Jenkins
-                        echo "VM mode: Ansible deploying to ${params.VM_USER}@${params.VM_IP}"
-                        sshagent(credentials: ['vm-deploy-key']) {
-                            sh """
-                                ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
-                                    -i '${params.VM_IP},' \\
-                                    -u '${params.VM_USER}' \\
-                                    /path/to/your/webapp-deploy.yml
-                            """
-                        }
-                    } else {
-                        // Local mode: deploy trực tiếp trên Jenkins agent (demo 1 máy)
-                        echo "Local mode: deploying on Jenkins agent"
-                        sh '''
+                // Yêu cầu: credential 'vm-deploy-key' (SSH private key) trong Jenkins
+                // Jenkins → Manage Jenkins → Credentials → Add → SSH Username with private key
+                sshagent(credentials: ['vm-deploy-key']) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${params.VM_USER}@${params.VM_IP} '
                             mkdir -p /tmp/demo-prod-app/config /tmp/demo-prod-app/scripts
-                            echo \'{"version":"2.0.0","deployed_by":"ansible","env":"prod"}\' \
+                            echo "{\"version\":\"2.0.0\",\"deployed_by\":\"jenkins\",\"env\":\"prod\"}" \\
                                 > /tmp/demo-prod-app/config/app.json
-                            printf \'[database]\nhost=db.internal\nport=5432\npool=10\n\' \
+                            printf "[database]\nhost=db.internal\nport=5432\npool=10\n" \\
                                 > /tmp/demo-prod-app/config/db.conf
-                            echo "Deploy done at $(date)"
-                        '''
-                    }
+                            echo "Restored by Jenkins at \$(date)"
+                        '
+                    """
                 }
             }
         }
@@ -98,7 +81,7 @@ pipeline {
                 echo "Deploy window closed"
             """
         }
-        success { echo "Pipeline succeeded — AUTHORIZED_CHANGE expected in OOB monitor" }
-        failure { echo "Pipeline failed  — Deploy window closed to avoid stale authorization" }
+        success { echo "Pipeline OK — AUTHORIZED_CHANGE expected in OOB monitor" }
+        failure { echo "Pipeline FAILED — Deploy window closed, files may not be restored" }
     }
 }

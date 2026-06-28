@@ -15,8 +15,12 @@
     "url": "http://localhost:8081",
     "user": "admin",
     "token": "YOUR_JENKINS_API_TOKEN",
+    "remediation_vm_ip": "192.168.1.16",
+    "remediation_vm_user": "lap",
+    "remediation_server": "prod-server-01",
     "ssl_verify": true,
-    "remediate": true
+    "remediate": true,
+    "fail_open": false
   },
 
   "smtp": {

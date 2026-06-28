@@ -20,6 +20,7 @@ bool HttpJenkinsClient::isDeployRunning(const QString &project, const QString &s
 
     QStringList args = {
         "-s",
+        "--globoff",   // brackets in ?tree=jobs[name,color] are not curl glob patterns
         "-u", m_config.username + ":" + m_config.apiToken,
         apiUrl
     };

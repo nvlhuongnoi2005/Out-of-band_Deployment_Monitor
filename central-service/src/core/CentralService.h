@@ -18,6 +18,9 @@ struct JenkinsConfig {
     QString url;
     QString username;
     QString apiToken;
+    QString remediationVmIp;
+    QString remediationVmUser;
+    QString remediationServer;
     bool    sslVerify = true;  // set false to accept self-signed HTTPS certs
     bool    failOpen  = false; // true = when Jenkins unreachable, assume authorized (avoid false alerts)
     bool    enabled() const { return !url.isEmpty(); }

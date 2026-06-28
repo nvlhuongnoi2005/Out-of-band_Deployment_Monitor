@@ -17,6 +17,9 @@ struct CentralConfig {
     QString jenkinsUrl;
     QString jenkinsUser      = "admin";
     QString jenkinsToken;
+    QString jenkinsRemediationVmIp;
+    QString jenkinsRemediationVmUser;
+    QString jenkinsRemediationServer;
     bool    jenkinsSslVerify = true;
     bool    jenkinsRemediate = false;
     // fail_open: when Jenkins API is unreachable, treat as "deploy MAY be running"

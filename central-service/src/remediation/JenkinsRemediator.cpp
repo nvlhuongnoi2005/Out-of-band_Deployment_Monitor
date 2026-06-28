@@ -1,8 +1,9 @@
 #include "JenkinsRemediator.h"
-
 #include <QProcess>
 #include <QDateTime>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <thread>
 
 JenkinsRemediator::JenkinsRemediator(const JenkinsConfig &config, int cooldownSec)
@@ -41,22 +42,52 @@ void JenkinsRemediator::trigger(const QString &server,  const QString &project,
     // Detached thread: the HTTP handler must return immediately so Central can process
     // the next event. Jenkins may take several seconds to accept the build request.
     std::thread([cfg, server, project]() {
-        // Jenkins REST API: POST /job/{name}/build
-        // Convention: Jenkins job name = project name (e.g. "webapp")
-        const QString jobUrl = cfg.url + "/job/" + project + "/build";
+        // Jenkins CSRF protection requires a crumb token on every POST request.
+        const QString crumbUrl = cfg.url + "/crumbIssuer/api/json";
+        QStringList crumbArgs = { "-s", "--globoff",
+                                  "-u", cfg.username + ":" + cfg.apiToken,
+                                  crumbUrl };
+        if (!cfg.sslVerify) crumbArgs << "--insecure";
 
+        QProcess crumbProc;
+        crumbProc.start("curl", crumbArgs);
+        crumbProc.waitForFinished(10000);
+
+        QString crumbHeader;
+        const auto crumbDoc = QJsonDocument::fromJson(crumbProc.readAllStandardOutput());
+        if (!crumbDoc.isNull()) {
+            const QString field = crumbDoc.object()["crumbRequestField"].toString();
+            const QString value = crumbDoc.object()["crumb"].toString();
+            if (!field.isEmpty() && !value.isEmpty())
+                crumbHeader = field + ":" + value;
+        }
+
+        // Parameterized jobs reject POST /build with HTTP 400 — use /buildWithParameters
+        // and provide the same parameter names as mock/Jenkinsfile.
+        const QString jobUrl = cfg.url + "/job/" + project + "/buildWithParameters";
         QStringList args = {
-            "-s",
-            "-o", "/dev/null",           // discard body
-            "-w", "%{http_code}",        // write HTTP status code to stdout
+            "-s", "--globoff",
+            "-o", "/dev/null",
+            "-w", "%{http_code}",
             "-X", "POST",
             "-u", cfg.username + ":" + cfg.apiToken,
-            jobUrl
         };
-
-        // Skip TLS certificate verification for self-signed / internal CA certs.
+        if (!crumbHeader.isEmpty())
+            args << "-H" << crumbHeader;
         if (!cfg.sslVerify)
             args << "--insecure";
+
+        if (!cfg.remediationVmIp.isEmpty())
+            args << "--data-urlencode" << ("VM_IP=" + cfg.remediationVmIp);
+        if (!cfg.remediationVmUser.isEmpty())
+            args << "--data-urlencode" << ("VM_USER=" + cfg.remediationVmUser);
+        const QString serverParam = cfg.remediationServer.isEmpty()
+                                        ? server
+                                        : cfg.remediationServer;
+        if (!serverParam.isEmpty())
+            args << "--data-urlencode" << ("OOB_SERVER_NAME=" + serverParam);
+
+        args << jobUrl;
 
         QProcess proc;
         proc.start("curl", args);

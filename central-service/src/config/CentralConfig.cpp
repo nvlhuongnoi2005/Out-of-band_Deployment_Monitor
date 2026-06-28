@@ -40,6 +40,12 @@ CentralConfig CentralConfig::loadFromFile(const QString &path)
         if (j.contains("url"))        cfg.jenkinsUrl        = j["url"].toString();
         if (j.contains("user"))       cfg.jenkinsUser       = j["user"].toString();
         if (j.contains("token"))      cfg.jenkinsToken      = j["token"].toString();
+        if (j.contains("remediation_vm_ip"))
+            cfg.jenkinsRemediationVmIp = j["remediation_vm_ip"].toString();
+        if (j.contains("remediation_vm_user"))
+            cfg.jenkinsRemediationVmUser = j["remediation_vm_user"].toString();
+        if (j.contains("remediation_server"))
+            cfg.jenkinsRemediationServer = j["remediation_server"].toString();
         if (j.contains("ssl_verify")) cfg.jenkinsSslVerify = j["ssl_verify"].toBool();
         if (j.contains("remediate"))  cfg.jenkinsRemediate = j["remediate"].toBool();
         if (j.contains("fail_open"))  cfg.jenkinsFailOpen  = j["fail_open"].toBool();
