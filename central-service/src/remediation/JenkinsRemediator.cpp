@@ -38,6 +38,8 @@ void JenkinsRemediator::trigger(const QString &server,  const QString &project,
 
     const JenkinsConfig cfg = m_config;
 
+    // Detached thread: the HTTP handler must return immediately so Central can process
+    // the next event. Jenkins may take several seconds to accept the build request.
     std::thread([cfg, server, project]() {
         // Jenkins REST API: POST /job/{name}/build
         // Convention: Jenkins job name = project name (e.g. "webapp")

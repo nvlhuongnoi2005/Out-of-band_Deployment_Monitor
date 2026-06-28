@@ -7,6 +7,9 @@ mock/central-config.json
 # Build outputs
 build/
 cmake-build-*/
+deploy/*.deb
+deploy/oob-agent_*_amd64/
+deploy/oob-central_*_amd64/
 
 # Generated compile database
 compile_commands.json

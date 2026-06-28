@@ -205,8 +205,12 @@ void CentralService::setupRoutes()
                     << "| server=" + server << "| path=" + path;
         }
 
+        const QString detectedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+
         QJsonObject audit;
+        audit["@timestamp"]     = detectedAt; // Grafana/Kibana default time field
         audit["timestamp"]      = timestamp;
+        audit["detected_at"]    = detectedAt;
         audit["event_id"]       = eventId;
         audit["agent_id"]       = agentId;
         audit["server"]         = server;
@@ -218,7 +222,6 @@ void CentralService::setupRoutes()
         audit["pid"]            = pid;
         audit["process_name"]   = procName;
         audit["classification"] = clsStr;
-        audit["detected_at"]     = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 
         const QString auditJson =
             QString::fromUtf8(QJsonDocument(audit).toJson(QJsonDocument::Compact));

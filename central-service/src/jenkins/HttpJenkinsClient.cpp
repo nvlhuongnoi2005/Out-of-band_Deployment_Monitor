@@ -61,6 +61,8 @@ bool HttpJenkinsClient::isDeployRunning(const QString &project, const QString &s
         const bool nameMatches = (name.compare(project, Qt::CaseInsensitive) == 0)
                               || name.startsWith(project + "-", Qt::CaseInsensitive);
 
+        // Jenkins appends "_anime" to color when the job is actively running
+        // (e.g. "blue_anime" = last build passed and currently building).
         if (nameMatches && color.endsWith("_anime")) {
             qInfo() << "[Jenkins] Active deploy found:" << name;
             return true;

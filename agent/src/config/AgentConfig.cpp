@@ -29,6 +29,8 @@ AgentConfig AgentConfig::loadFromFile(const QString &path)
     if (obj.contains("heartbeat_interval_sec")) cfg.heartbeatIntervalSec = obj["heartbeat_interval_sec"].toInt();
     if (obj.contains("retry_interval_sec"))     cfg.retryIntervalSec     = obj["retry_interval_sec"].toInt();
 
+    if (obj.contains("watcher_backend"))        cfg.watcherBackend       = obj["watcher_backend"].toString();
+
     if (obj.contains("watch_dirs")) {
         cfg.watchDirs.clear();
         for (const auto &v : obj["watch_dirs"].toArray())

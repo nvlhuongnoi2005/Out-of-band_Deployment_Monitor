@@ -18,6 +18,8 @@ uid_t statUid(const QString &path)
     return (uid_t)-1;
 }
 
+// inotify provides no PID in its event — scan /proc/*/fd symlinks to find
+// which process currently holds the file open.
 int findPidByOpenFile(const QString &targetPath)
 {
     const QStringList pids = QDir("/proc").entryList(QDir::Dirs | QDir::NoDotAndDotDot);
@@ -54,6 +56,7 @@ uid_t uidOfPid(int pid)
 
 QString uidToUsername(uid_t uid)
 {
+    // getpwuid_r (reentrant) instead of getpwuid — safe when called from multiple threads.
     char buf[1024];
     struct passwd pw, *result = nullptr;
     if (getpwuid_r(uid, &pw, buf, sizeof(buf), &result) == 0 && result)

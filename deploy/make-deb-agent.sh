@@ -46,6 +46,7 @@ cat > "$PKG_DIR/etc/oob-agent/config.json" << 'EOF'
   "project":                "webapp",
   "watch_dirs":             ["/opt/webapp"],
   "central_url":            "http://central-host:8080",
+  "watcher_backend":        "ebpf",
   "retry_interval_sec":     5,
   "heartbeat_interval_sec": 30
 }
@@ -57,11 +58,11 @@ Package: $PACKAGE
 Version: $VERSION
 Architecture: $ARCH
 Maintainer: OOB Monitor <noreply@example.com>
-Depends: libqt6core6 | libqt6core6t64, libqt6network6 | libqt6network6t64
-Recommends: bpftrace
+Depends: libqt6core6 | libqt6core6t64, libqt6network6 | libqt6network6t64, bpftrace
 Description: Out-of-Band Deployment Monitor — Agent
  Lightweight filesystem sensor. Detects file changes on a production
  server and reports them to oob-central for classification.
+ Uses eBPF (bpftrace) by default for kernel-level visibility with PID tracking.
  .
  Install this package on every server you want to monitor.
  The central service (oob-central package) runs separately.

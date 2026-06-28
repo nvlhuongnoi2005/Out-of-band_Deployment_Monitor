@@ -38,6 +38,8 @@ void EventReporter::trySendNext()
     QNetworkRequest request(QUrl(m_centralUrl + "/api/v1/events"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
+    // Send one event at a time (m_isSending gate) to preserve arrival order at Central
+    // and avoid flooding the queue with concurrent retries.
     m_manager->post(request, serialize(event));
     m_isSending = true;
 

@@ -27,6 +27,8 @@ InotifyWatcher::~InotifyWatcher()
 
 bool InotifyWatcher::start(const QStringList &directories)
 {
+    // IN_NONBLOCK + QSocketNotifier: inotify fd integrates into Qt event loop
+    // without a dedicated thread — activated() fires when kernel has events ready.
     m_fd = inotify_init1(IN_NONBLOCK);
     if (m_fd < 0) {
         emit errorOccurred(QString("inotify_init1 failed: %1").arg(strerror(errno)));
@@ -125,9 +127,12 @@ void InotifyWatcher::processEvent(const struct inotify_event *e)
     const QString name     = (e->len > 0) ? QString::fromUtf8(e->name) : QString();
     const QString fullPath = name.isEmpty() ? dirPath : dirPath + "/" + name;
 
+    // inotify does not auto-watch newly created subdirectories — must add watch manually.
     if ((e->mask & IN_CREATE) && (e->mask & IN_ISDIR))
-        addWatchRecursive(fullPath); // recursive: also catches pre-existing subdirs inside the new dir
+        addWatchRecursive(fullPath);
 
+    // Skip directory events other than CREATE (e.g. IN_MODIFY on a dir means
+    // an entry was added/removed inside it — the file event itself will follow separately).
     if ((e->mask & IN_ISDIR) && !(e->mask & IN_CREATE)) return;
 
     EventType evType = maskToEventType(e->mask);
@@ -139,6 +144,9 @@ void InotifyWatcher::processEvent(const struct inotify_event *e)
     ev.eventType = evType;
     ev.timestamp = QDateTime::currentDateTimeUtc(); // UTC + Z suffix → ES indexes correctly
 
+    // inotify events carry no PID — must correlate via /proc/*/fd symlinks.
+    // Short-lived processes (e.g. cp, mv) may already be gone by the time we scan;
+    // fall back to stat() owner as best-effort uid in that case.
     int pid = ProcHelper::findPidByOpenFile(fullPath);
     if (pid > 0) {
         ev.pid         = pid;

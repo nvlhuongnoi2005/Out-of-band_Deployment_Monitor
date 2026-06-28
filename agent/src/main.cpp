@@ -33,7 +33,10 @@ int main(int argc, char *argv[])
     qInfo() << "=== Out-of-Band Deployment Monitor — Agent v0.1.0 ===";
 
     const AgentConfig  config  = AgentConfig::loadFromFile(parser.value(configOption));
-    const QString      backend = parser.value(watcherOption).toLower();
+    // CLI flag takes precedence; fall back to watcher_backend from config file
+    const QString      backend = parser.isSet(watcherOption)
+                                     ? parser.value(watcherOption).toLower()
+                                     : config.watcherBackend.toLower();
 
     std::unique_ptr<IFileWatcher> watcher;
     if (backend == "ebpf") {
