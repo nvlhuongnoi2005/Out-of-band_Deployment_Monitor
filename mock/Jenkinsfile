@@ -1,12 +1,14 @@
 // Pipeline: webapp deploy + remediation
 //
 // Luồng bình thường (CI/CD):
-//   Jenkins mở Deploy Window → Ansible SSH vào VM → restore/deploy file → đóng window
+//   Jenkins mở Deploy Window → gọi ansible-playbook → Ansible SSH vào VM
+//   → restore/deploy file → đóng window
 //   Agent trên VM phát hiện thay đổi → Central phân loại AUTHORIZED_CHANGE
 //
 // Luồng remediation (tự động từ Central):
-//   Central phát hiện UNAUTHORIZED_DRIFT → POST /job/webapp/build (không có tham số)
-//   → Jenkins chạy pipeline với VM_IP mặc định → restore file về đúng trạng thái
+//   Central phát hiện UNAUTHORIZED_DRIFT → POST /job/webapp/buildWithParameters
+//   → Jenkins chạy pipeline với VM_IP/VM_USER/OOB_SERVER_NAME
+//   → Ansible restore file về đúng trạng thái
 
 pipeline {
     agent any
@@ -14,7 +16,7 @@ pipeline {
     parameters {
         string(
             name: 'VM_IP',
-            defaultValue: '192.168.1.16',
+            defaultValue: '192.168.1.X',
             description: 'IP của VM đang chạy oob-agent'
         )
         string(
@@ -52,20 +54,18 @@ pipeline {
             }
         }
 
-        stage('Restore files on VM') {
+        stage('Deploy with Ansible') {
             steps {
-                // Yêu cầu: credential 'vm-deploy-key' (SSH private key) trong Jenkins
-                // Jenkins → Manage Jenkins → Credentials → Add → SSH Username with private key
+                // Yêu cầu: Jenkins node có ansible-playbook + SSH client.
+                // Credential 'vm-deploy-key' là SSH private key được Jenkins nạp vào ssh-agent.
                 sshagent(credentials: ['vm-deploy-key']) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ${params.VM_USER}@${params.VM_IP} '
-                            mkdir -p /tmp/demo-prod-app/config /tmp/demo-prod-app/scripts
-                            echo "{\"version\":\"2.0.0\",\"deployed_by\":\"jenkins\",\"env\":\"prod\"}" \\
-                                > /tmp/demo-prod-app/config/app.json
-                            printf "[database]\nhost=db.internal\nport=5432\npool=10\n" \\
-                                > /tmp/demo-prod-app/config/db.conf
-                            echo "Restored by Jenkins at \$(date)"
-                        '
+                        ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook \\
+                            -i "${params.VM_IP}," \\
+                            -u "${params.VM_USER}" \\
+                            ansible/deploy-webapp.yml \\
+                            -e "app_dir=/tmp/demo-prod-app" \\
+                            -e "deployed_by=jenkins_ansible"
                     """
                 }
             }

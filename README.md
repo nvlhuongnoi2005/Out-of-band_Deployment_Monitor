@@ -30,6 +30,12 @@ Host / Monitoring Server
     - gửi email alert
     - trigger Jenkins remediation nếu phát hiện drift
 
+CI/CD
+  Jenkins -> Ansible -> Production VM
+    - Jenkins mở/đóng Deploy Window
+    - Jenkins gọi ansible-playbook
+    - Ansible SSH vào VM để deploy/restore file
+
 Observability
   Elasticsearch -> Grafana Dashboard
 ```
@@ -69,7 +75,7 @@ Agent -> Central -> Audit Log -> Elasticsearch -> Grafana
 - Đẩy event vào Elasticsearch.
 - Hiển thị trên Grafana.
 - Gửi email alert khi phát hiện drift trái phép.
-- Trigger Jenkins job để restore file.
+- Trigger Jenkins job để restore file bằng Ansible.
 - Đóng gói Agent/Central thành Linux service qua `.deb`.
 
 ## 3. Cấu Trúc Thư Mục
@@ -79,11 +85,14 @@ agent/              Source code của oob-agent
 central-service/    Source code của oob-central
 shared/             Model FileEvent dùng chung
 deploy/             Script đóng gói, systemd service, logrotate
+ansible/            Playbook deploy/restore file demo qua Jenkins
 mock/               Config mẫu và Jenkinsfile demo
 docs/               Tài liệu yêu cầu, kiến trúc, API contract
 scripts/            Script đo latency và tài nguyên
 third-party/        cpp-httplib header
 ```
+
+Kịch bản test chi tiết nằm ở `docs/test-scenarios.md`.
 
 ## 4. Yêu Cầu Môi Trường
 
@@ -106,6 +115,7 @@ VM chạy Agent:
 Central Host:
 
 - Jenkins
+- Ansible và OpenSSH client trên Jenkins node/container
 - Elasticsearch
 - Grafana
 - Python 3 nếu bật SMTP email alert
@@ -327,7 +337,8 @@ Luồng remediation:
 UNAUTHORIZED_DRIFT
   -> Central gọi Jenkins /job/{project}/buildWithParameters
   -> Jenkins mở Deploy Window
-  -> Jenkins SSH/Ansible vào VM để restore file
+  -> Jenkins gọi ansible-playbook
+  -> Ansible SSH vào VM để restore file
   -> Jenkins đóng Deploy Window
   -> File restore được phân loại AUTHORIZED_CHANGE
 ```
@@ -340,8 +351,12 @@ UNAUTHORIZED_DRIFT
   - `VM_IP`
   - `VM_USER`
   - `OOB_SERVER_NAME`
+- Jenkins node/container cần chạy được:
+  - `ansible-playbook --version`
+  - `ssh -V`
 - Jenkins credential SSH phải có ID:
   - `vm-deploy-key`
+- Jenkins job nên lấy code từ SCM để workspace có thư mục `ansible/`.
 
 Jenkinsfile mẫu:
 
@@ -376,4 +391,3 @@ Kết luận: Agent tiêu thụ tài nguyên thấp trong điều kiện bình t
 - Nên dùng Jenkins API token thay vì mật khẩu đăng nhập web.
 - Nếu dùng Gmail SMTP, dùng Gmail App Password.
 - Production thực tế nên bổ sung authentication/TLS giữa Agent và Central.
-

@@ -226,9 +226,10 @@ Central nhận event:
     ├── SmtpNotifier.notify() → email cảnh báo (background subprocess)
     │
     └── JenkinsRemediator.trigger() [nếu --jenkins-remediate]:
-            cooldown check (300s per project)
-            → curl -X POST https://jenkins/job/{project}/build
-            → Jenkins re-chạy pipeline → Ansible deploy lại
+            cooldown check (30s per project)
+            → curl -X POST https://jenkins/job/{project}/buildWithParameters
+            → Jenkins re-chạy pipeline → gọi ansible-playbook
+            → Ansible SSH vào server và deploy lại
             → Jenkinsfile mở Deploy Window trước khi deploy
             → Các file changes từ re-deploy = AUTHORIZED_CHANGE
 ```
@@ -286,7 +287,7 @@ Agent QTimer mỗi 30s
 | Auto-remediation | Gọi Jenkins API re-trigger | Jenkins là source-of-truth; pipeline có credentials và opens deploy window tự động |
 | Audit log | JSON Lines file + ES | File: durable ngay cả khi ES down; ES: queryable |
 | Deploy window | TTL với `valid_until` (tuyệt đối) hoặc `ttl_sec` (tương đối) | Jenkins dùng `valid_until`; test thủ công dùng `ttl_sec` |
-| Idempotency (remediation) | Cooldown map `project → last_trigger_epoch`, 300s | Tránh trigger liên tục khi nhiều events dồn về |
+| Idempotency (remediation) | Cooldown map `project → last_trigger_epoch`, 30s | Tránh trigger liên tục khi nhiều events dồn về |
 
 ---
 

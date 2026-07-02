@@ -1,0 +1,47 @@
+---
+- name: Deploy or restore the demo webapp files
+  hosts: all
+  gather_facts: false
+
+  vars:
+    app_dir: /tmp/demo-prod-app
+    deployed_by: jenkins_ansible
+
+  tasks:
+    - name: Ensure demo app directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/config"
+        - "{{ app_dir }}/scripts"
+
+    - name: Restore application config
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/config/app.json"
+        mode: "0644"
+        content: |
+          {"version":"2.0.0","deployed_by":"{{ deployed_by }}","env":"prod"}
+
+    - name: Restore database config
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/config/db.conf"
+        mode: "0644"
+        content: |
+          [database]
+          host=db.internal
+          port=5432
+          pool=10
+
+    - name: Restore healthcheck script
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/scripts/healthcheck.sh"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          test -f "{{ app_dir }}/config/app.json"
+          test -f "{{ app_dir }}/config/db.conf"
+          echo "webapp config is present"
