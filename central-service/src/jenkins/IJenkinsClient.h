@@ -2,7 +2,7 @@
 
 #include <QString>
 
-// Strategy interface — swap MockJenkinsClient ↔ HttpJenkinsClient không cần sửa DecisionEngine
+// Strategy interface — Central can use HttpJenkinsClient or nullptr without changing DecisionEngine.
 class IJenkinsClient {
 public:
     virtual ~IJenkinsClient() = default;

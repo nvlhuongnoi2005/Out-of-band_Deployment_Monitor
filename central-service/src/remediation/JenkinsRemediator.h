@@ -16,7 +16,7 @@
 //     re-deploy events are classified as AUTHORIZED_CHANGE, not drift
 //   - Jenkins provides a build log and history for audit purposes
 //
-// Jenkins API: POST /job/{project}/build
+// Jenkins API: POST /job/{project}/buildWithParameters
 // Auth: HTTP Basic with username + API token
 // HTTPS: supported (curl backend), use sslVerify=false for self-signed certs
 class JenkinsRemediator {

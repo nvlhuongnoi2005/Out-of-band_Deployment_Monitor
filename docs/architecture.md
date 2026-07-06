@@ -84,8 +84,8 @@ Hệ thống phát hiện **Shadow Deployment** — các thay đổi trên produ
 │  │ TTL: valid_until │    │ │ color.endsWith("_anime") = busy  │   │ │
 │  │ hoặc ttl_sec     │    │ └──────────────────────────────────┘   │ │
 │  │ max 86400s       │    │ ┌──────────────────────────────────┐   │ │
-│  └──────────────────┘    │ │ MockJenkinsClient                │   │ │
-│                          │ │ đọc JSON file (dev/test)         │   │ │
+│  └──────────────────┘    │ │ nullptr nếu không cấu hình       │   │ │
+│                          │ │ Jenkins trong Central config     │   │ │
 │                          │ └──────────────────────────────────┘   │ │
 │                          └────────────────────────────────────────┘ │
 │                                                                     │
@@ -136,7 +136,7 @@ Hệ thống phát hiện **Shadow Deployment** — các thay đổi trên produ
 |---|---|---|---|
 | Watcher (inotify) | `InotifyWatcher` | inotify + `QSocketNotifier` | Recursive watch, event loop integration |
 | Watcher (eBPF) | `EbpfWatcher` | `bpftrace` subprocess | eBPF tracepoints, uid/pid từ kernel |
-| Process info | `ProcHelper` | `/proc/[pid]/status`, `/proc/[pid]/cmdline` | uid, username, process name khi dùng inotify |
+| Process info | `ProcHelper` | `/proc/[pid]/status`, `/proc/[pid]/comm` | uid, username, process name khi dùng inotify |
 | Event reporter | `EventReporter` | `QNetworkAccessManager` | Queue + retry + HTTP/HTTPS POST |
 | Agent core | `Agent` | `QObject`, `QTimer` | Orchestration + heartbeat 30s |
 | Config | `AgentConfig` | `QJsonDocument` | Load `agent-config.json` |
@@ -170,7 +170,6 @@ struct FileEvent {
 | Deploy Window | `DeployWindowManager` | `QMap + QMutex` | TTL-based window, thread-safe |
 | Decision | `DecisionEngine` | Chain of Responsibility | Window → Jenkins → UNAUTHORIZED |
 | Jenkins (real) | `HttpJenkinsClient` | `curl` subprocess | HTTP/HTTPS, kiểm tra `color` endsWith `_anime` |
-| Jenkins (mock) | `MockJenkinsClient` | `QJsonDocument` | Đọc file JSON cho dev/test |
 | Audit | `AuditLogger` | `QFile + QMutex` | JSON Lines, mở-đóng mỗi lần write, trả `bool` |
 | ES | `ElasticsearchClient` | `curl` subprocess | Direct index API, HTTP/HTTPS |
 | Email | `SmtpNotifier` | Python3 `smtplib` + `QTemporaryFile` | Credentials không lộ trên `ps aux` |
@@ -179,10 +178,17 @@ struct FileEvent {
 ### 3.3 Interfaces (Strategy Pattern)
 
 ```
-IFileWatcher          IJenkinsClient        INotifier
-     │                     │                   │
-     ├── InotifyWatcher     ├── HttpJenkinsClient ├── SmtpNotifier
-     └── EbpfWatcher        └── MockJenkinsClient └── (extensible)
+IFileWatcher
+  ├── InotifyWatcher
+  └── EbpfWatcher
+
+IJenkinsClient
+  └── HttpJenkinsClient
+      (nullptr nếu không cấu hình Jenkins)
+
+INotifier
+  └── SmtpNotifier
+      (extensible)
 ```
 
 ---

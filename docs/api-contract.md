@@ -60,7 +60,8 @@ Content-Type: application/json
 ```json
 {
   "status": "received",
-  "event_id": "550e8400-e29b-41d4-a716-446655440000"
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "classification": "UNAUTHORIZED_DRIFT"
 }
 ```
 
@@ -88,10 +89,16 @@ Agent gửi heartbeat định kỳ (mỗi 30 giây) để báo hiệu Agent đan
 ```json
 {
   "agent_id":  "prod-server-01",
+  "server":    "prod-server-01",
+  "project":   "demo-app",
   "timestamp": "2026-06-21T18:30:00+07:00",
   "status":    "healthy"
 }
 ```
+
+**Trường bắt buộc:** `agent_id`, `server`, `timestamp`, `status`.
+Trường `project` hiện được Agent gửi kèm để giữ ngữ cảnh, nhưng Central chỉ log
+heartbeat theo `agent_id`, `server` và `status`.
 
 **Response:**
 
@@ -142,15 +149,22 @@ Hoặc dùng TTL tương đối (tiện khi test thủ công):
 }
 ```
 
-**Trường bắt buộc:**
+**Trường bắt buộc chung:**
 
 | Trường | Kiểu | Mô tả |
 |---|---|---|
 | server | string | Server đang được deploy |
 | project | string | Project đang được deploy |
 | action | enum | OPEN / CLOSE |
-| valid_until | string (ISO 8601) | (OPEN, hoặc dùng ttl_sec) Thời điểm hết hạn tuyệt đối |
-| ttl_sec | integer | (OPEN, thay thế valid_until) Số giây Deploy Window tồn tại |
+
+**Với `action:"OPEN"`:** phải có một trong hai trường sau:
+
+| Trường | Kiểu | Mô tả |
+|---|---|---|
+| valid_until | string (ISO 8601) | Thời điểm hết hạn tuyệt đối |
+| ttl_sec | integer | Số giây Deploy Window tồn tại |
+
+**Với `action:"CLOSE"`:** không cần `valid_until` hoặc `ttl_sec`.
 
 > **Lưu ý:** `valid_until` nên đặt = thời gian dự kiến deploy xong + buffer 2 phút.
 > Central Service sẽ tự đóng Deploy Window khi hết hạn TTL dù Jenkins không gửi CLOSE.
@@ -239,4 +253,3 @@ File mặc định: `/tmp/oob-audit.log` (có thể cấu hình qua `audit_log` 
 Format: JSON Lines — mỗi event là một dòng JSON, dễ đọc bằng `jq` hoặc `grep`.
 
 Central Service tự ghi file này sau mỗi classification và đẩy event lên Elasticsearch qua HTTP (không dùng Filebeat). Logrotate quản lý rotation và nén (`/etc/logrotate.d/oob-audit`).
-

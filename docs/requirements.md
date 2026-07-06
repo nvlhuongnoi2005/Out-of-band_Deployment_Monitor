@@ -19,7 +19,7 @@
 | ID | Tên | Mô tả | Module |
 |---|---|---|---|
 | FR-10 | eBPF monitoring | Thay thế inotify bằng eBPF để giám sát ở tầng kernel | Agent / EbpfWatcher |
-| FR-11 | Grafana Dashboard | Dashboard hiển thị Configuration Drift theo thời gian, đánh dấu server vi phạm | Grafana / dashboard.json |
+| FR-11 | Grafana Dashboard | Dashboard hiển thị Configuration Drift theo thời gian, đánh dấu server vi phạm | Grafana / Elasticsearch datasource |
 | FR-12 | Auto-Remediation | Khi phát hiện UNAUTHORIZED_DRIFT, gọi Jenkins API để re-trigger pipeline deploy, Ansible khôi phục lại trạng thái đúng | Central / JenkinsRemediator |
 | FR-13 | Push Elasticsearch | Central gọi trực tiếp ES REST API thay vì dùng Filebeat | Central / ElasticsearchClient |
 | FR-14 | Đóng gói Linux service | Agent đóng gói thành systemd service, phân phối qua RPM/DEB | deploy/ |
@@ -29,7 +29,7 @@
 | ID | Tên | Yêu cầu | Cách đo |
 |---|---|---|---|
 | NFR-01 | Độ trễ phát hiện | Thời gian từ lúc file bị sửa đến lúc có log/alert < 60 giây | Đo bằng timestamp: event_time vs detected_at trong audit log |
-| NFR-02 | Tài nguyên Agent | CPU < 2% và RSS memory < 50 MB trong điều kiện tải bình thường | `pidstat -u -r -p $(pgrep shadow-agent) 1 60` |
+| NFR-02 | Tài nguyên Agent | CPU < 2% và RSS memory < 50 MB trong điều kiện tải bình thường | `pidstat -u -r -p $(pgrep -x oob-agent \| head -1) 1 60` |
 | NFR-03 | Không cảnh báo nhầm | Zero false positive khi Ansible đang deploy hợp lệ | Chạy test case UC-01, xác nhận không có UNAUTHORIZED_DRIFT alert |
 | NFR-04 | Độ bền Agent | Agent tự khởi động lại nếu crash | Cấu hình `Restart=always` trong systemd unit |
 | NFR-05 | Không mất event | Không mất event trong 5 phút mất kết nối | Test: dừng Central 5 phút, restart, xác nhận event được gửi lại |

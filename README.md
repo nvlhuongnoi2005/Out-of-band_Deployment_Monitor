@@ -99,7 +99,7 @@ Agent -> Central -> Audit Log -> Elasticsearch -> Grafana
 - Elasticsearch indexing và Grafana dashboard.
 - SMTP email alert khi có `UNAUTHORIZED_DRIFT`.
 - Jenkins auto-remediation để khôi phục file bằng pipeline/Ansible.
-- Script đo latency, tài nguyên và kịch bản mất kết nối.
+- Script đo latency, tài nguyên và stress test ghi file đồng thời.
 - Script đóng gói `.deb` và systemd unit cho Agent/Central.
 
 ## 5. Cấu Trúc Repository
@@ -111,7 +111,7 @@ shared/             Model dùng chung, ví dụ FileEvent
 deploy/             systemd unit, installer, script đóng gói .deb
 mock/               Config mẫu, Jenkinsfile demo, dữ liệu mock
 docs/               Requirements, architecture, API contract
-scripts/            Script đo latency, resource, disconnect/retry
+scripts/            Script đo latency, resource và stress file writes
 third-party/        cpp-httplib header
 ```
 
