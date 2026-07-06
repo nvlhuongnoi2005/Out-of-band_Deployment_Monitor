@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
     parser.addVersionOption();
 
     QCommandLineOption configOption({"c", "config"},
-        "Path to config file", "config", "/etc/oob-monitor/agent-config.json");
+        "Path to config file", "config", "/etc/oob-agent/config.json");
     QCommandLineOption watcherOption({"w", "watcher"},
         "File watcher backend: inotify (default) or ebpf (requires bpftrace + root)",
         "watcher", "inotify");
